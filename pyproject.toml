@@ -4,7 +4,7 @@ build-backend = "scikit_build_core.build"
 
 [project]
 name = "pylast"
-version = "0.0.3"
+version = "0.0.4"
 description = "A simple example of using nanobind to bind C++ code to Python"
 readme = "README.md"
 requires-python = ">=3.9"
@@ -15,6 +15,13 @@ classifiers = [
     "License :: BSD",
     "Programming Language :: Python :: 3",
     "Programming Language :: C++",
+]
+dependencies = [
+    "ibis",
+    "numpy",
+    "pandas",
+    "ibis-framework",
+    "duckdb==1.3.2"
 ]
 
 [tool.scikit-build]
@@ -29,7 +36,7 @@ wheel.py-api = "cp312"
 # Include model files in the package
 sdist.include = ["model/*"]
 [project.scripts]
-hillas_reco = "pylast.ulities.hillas_reco:hillas_reco"
+hillas_reco = "pylast.ulities.hillas_reco:main"
 merge_source = "pylast.ulities.merge_source:main"
 simplified_convert = "pylast.ulities.simplified_convert:main"
 make_histogram = "pylast.ulities.make_histogram:make_histogram"
