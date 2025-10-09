@@ -22,7 +22,7 @@ jobs:
           path: ${{github.workspace}}/root_install
           key: ${{runner.os}}-root
           restore-keys: |
-              ${{runner.os}}-root
+              ${{runner.os}}-root-
       - name: Build ROOT from scratch without cache
         if: steps.cache-root.outputs.cache-hit != 'true'
         run: |
