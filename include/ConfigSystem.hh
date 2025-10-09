@@ -1,6 +1,6 @@
 // ConfigSystem.hh
 #pragma once
-#include "nlohmann/json.hpp"
+#include "nlohmann_json/json.hpp"
 #include <string>
 #include <functional>
 #include <unordered_map>
