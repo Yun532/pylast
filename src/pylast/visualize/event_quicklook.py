@@ -369,6 +369,85 @@ def plot_raw_images(
     )
 
 
+def plot_gathered_images(
+    event=None,
+    *,
+    source=None,
+    visualizer=None,
+    root_file: str | PathLike[str] | None = None,
+    event_index: int = 0,
+    max_events: int = -1,
+    image_level: str = "dl0",
+    output_path: str | PathLike[str] | None = None,
+    include_non_triggered: bool = False,
+    show_hillas: bool = True,
+    only_hillas: bool = False,
+    only_image: bool = False,
+    only_hillas_tels: bool = False,
+    zero_eps: float = 0.0,
+    show_colorbar: bool = False,
+    ideal: bool | None = None,
+    show_ideal_position: bool = False,
+    reco: bool | None = None,
+    show_reco_sdp: bool = False,
+    reco_sdp: bool | None = None,
+    show_reco_position: bool = False,
+    reconstructor: str = "HillasReconstructor",
+    show: bool | None = None,
+):
+    """Draw all selected telescope images in one gathered camera plane."""
+
+    if ideal is not None:
+        show_ideal_position = bool(ideal)
+    if reco is not None:
+        show_reco_position = bool(reco)
+        show_reco_sdp = bool(reco)
+    if reco_sdp is not None:
+        show_reco_sdp = bool(reco_sdp)
+    if root_file is None and _looks_like_path(event):
+        root_file = event
+        event = None
+    if root_file is not None:
+        source = LactEventSource(str(root_file), max_events=max_events)
+        event = source[event_index]
+    if event is None:
+        raise ValueError("event is required")
+
+    if show is None:
+        show = output_path is None
+    visualizer = _visualizer_from(source=source, visualizer=visualizer)
+    figure, axes = visualizer.plot_gathered_event(
+        event,
+        output_path=str(output_path) if output_path is not None else None,
+        image_level=image_level,
+        show_hillas=show_hillas,
+        only_hillas=only_hillas,
+        only_image=only_image,
+        only_hillas_tels=only_hillas_tels,
+        include_non_triggered=include_non_triggered,
+        zero_eps=zero_eps,
+        show_colorbar=show_colorbar,
+        show_ideal_position=show_ideal_position,
+        show_reco_position=show_reco_position,
+        show_reco_sdp=show_reco_sdp,
+        reconstructor=reconstructor,
+        show=show,
+    )
+    result = {
+        "event": event,
+        "visualizer": visualizer,
+        "figure": figure,
+        "axes": axes,
+        "path": Path(output_path) if output_path is not None else None,
+    }
+    if root_file is not None:
+        result["source"] = source
+    return result
+
+
+plot_gathered_event = plot_gathered_images
+
+
 def plot_clean_images(
     event=None,
     *,

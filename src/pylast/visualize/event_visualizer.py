@@ -1495,7 +1495,7 @@ class EventVisualizer:
         axes[0].text(
             0.05,
             0.5,
-            self._event_text(data, len(tel_ids)),
+            self._event_text(data, len(tel_ids), ground_counts=_event_ground_counts(event, source=self.source)),
             fontsize=22,
             fontweight="bold",
             ha="left",
@@ -1586,7 +1586,7 @@ class EventVisualizer:
         info_ax.text(
             0.05,
             0.5,
-            self._event_text(data, len(tel_ids)),
+            self._event_text(data, len(tel_ids), ground_counts=_event_ground_counts(event, source=self.source)),
             fontsize=22,
             fontweight="bold",
             ha="left",
@@ -1729,15 +1729,27 @@ class EventVisualizer:
         self._finish(fig, output_path, show)
         return fig, axes
 
-    def _event_text(self, data: EventData, n_tel: int) -> str:
-        return (
-            f"Energy: {data.energy:.2f} TeV\n"
-            f"Core: (east={data.core_x:.1f}, north={data.core_y:.1f}) m\n"
-            f"Direction: (ze={data.zenith_deg:.1f} deg, az={data.azimuth_deg:.1f} deg)\n"
-            f"Xmax: {data.x_max:.1f} g/cm2\n"
-            f"First Int: {data.first_interaction_height:.1f} m\n"
-            f"Active Tels: {n_tel}"
-        )
+    def _event_text(self, data: EventData, n_tel: int, ground_counts: Optional[Mapping[str, float]] = None) -> str:
+        lines = [
+            f"Energy: {data.energy:.2f} TeV",
+            f"Core: (east={data.core_x:.1f}, north={data.core_y:.1f}) m",
+            f"Direction: (ze={data.zenith_deg:.1f} deg, az={data.azimuth_deg:.1f} deg)",
+            f"Xmax: {data.x_max:.1f} g/cm2",
+            f"First Int: {data.first_interaction_height:.1f} m",
+        ]
+        if ground_counts:
+            lines.append(
+                "Ground: "
+                f"gamma={_format_count(ground_counts.get('ground_gammas'))}, "
+                f"e={_format_count(ground_counts.get('ground_electrons'))}"
+            )
+            lines.append(
+                "        "
+                f"had={_format_count(ground_counts.get('ground_hadrons'))}, "
+                f"mu={_format_count(ground_counts.get('ground_muons'))}"
+            )
+        lines.append(f"Active Tels: {n_tel}")
+        return "\n".join(lines)
 
     def _image_norm(self, image: np.ndarray):
         max_value = max(float(np.max(image)) if image.size else 1.0, 1.0)
