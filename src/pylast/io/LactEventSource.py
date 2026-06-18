@@ -8,23 +8,22 @@ def _event_id(event_or_id):
     return None if event_id is None else int(event_id)
 
 
-def _candidate_event_ids(event_or_id):
-    event_id = _event_id(event_or_id)
+def _unique(values):
+    return tuple(dict.fromkeys(value for value in values if value is not None))
+
+
+def _event_shower_ids(event_or_id):
     candidates = []
-    if event_id is not None:
-        candidates.append(int(event_id))
-        if abs(int(event_id)) >= 100:
-            candidates.append(int(event_id) // 100)
     shower = getattr(getattr(event_or_id, "simulation", None), "shower", None)
     if shower is not None:
-        for name in ("shower_event_id", "event_id"):
+        for name in ("shower_event_id", "corsika_event_id", "event_id"):
             value = getattr(shower, name, None)
             if value is not None:
                 try:
                     candidates.append(int(value))
                 except Exception:
                     pass
-    return tuple(dict.fromkeys(candidates))
+    return _unique(candidates)
 
 
 def _native_triggered_tels(event):
@@ -53,6 +52,7 @@ class LactEventSource:
         self._input_filename = getattr(self._source, "input_filename", None)
         if self._input_filename is None and args:
             self._input_filename = str(args[0])
+        self._event_id_mode = None
 
     def __getattr__(self, name):
         return getattr(self._source, name)
@@ -95,10 +95,23 @@ class LactEventSource:
         except Exception:
             return ()
 
+    def _read_root_event_id_mode(self, root_file):
+        if self._event_id_mode is not None:
+            return self._event_id_mode
+        self._event_id_mode = ""
+        try:
+            tree = root_file.Get("config")
+            if tree is not None and tree.GetBranch("event_id_mode") is not None and tree.GetEntries() > 0:
+                tree.GetEntry(0)
+                self._event_id_mode = str(tree.event_id_mode).strip()
+        except Exception:
+            self._event_id_mode = ""
+        return self._event_id_mode
+
     def _read_root_ground_counts(self, event_or_id):
         filename = self._input_filename
-        event_ids = _candidate_event_ids(event_or_id)
-        if filename is None or not event_ids or not str(filename).endswith(".root"):
+        event_id = _event_id(event_or_id)
+        if filename is None or event_id is None or not str(filename).endswith(".root"):
             return {}
         try:
             import ROOT
@@ -111,18 +124,43 @@ class LactEventSource:
             if tree is None or any(tree.GetBranch(name) is None for name in required):
                 root_file.Close()
                 return {}
+            event_id_mode = self._read_root_event_id_mode(root_file)
             has_shower_event_id = tree.GetBranch("shower_event_id") is not None
+
+            def counts_from_current_entry():
+                return {
+                    "ground_gammas": float(tree.ground_gammas),
+                    "ground_electrons": float(tree.ground_electrons),
+                    "ground_hadrons": float(tree.ground_hadrons),
+                    "ground_muons": float(tree.ground_muons),
+                }
+
+            # 1. Exact match on the ROOT output event id. This is the canonical
+            # match when pylast.event_id and corsika_events.event_id are the same.
             for entry in range(tree.GetEntries()):
                 tree.GetEntry(entry)
-                if int(tree.event_id) in event_ids or (has_shower_event_id and int(tree.shower_event_id) in event_ids):
-                    counts = {
-                        "ground_gammas": float(tree.ground_gammas),
-                        "ground_electrons": float(tree.ground_electrons),
-                        "ground_hadrons": float(tree.ground_hadrons),
-                        "ground_muons": float(tree.ground_muons),
-                    }
+                if int(tree.event_id) == int(event_id):
+                    counts = counts_from_current_entry()
                     root_file.Close()
                     return counts
+
+            # 2. Match through shower_event_id. For event_array100, LACT_sim
+            # output event ids are shower_event * 100 + array_id.
+            shower_ids = list(_event_shower_ids(event_or_id))
+            if event_id_mode == "event_array100" and abs(int(event_id)) >= 100:
+                shower_ids.append(int(event_id) // 100)
+            # Compatibility fallback: some native readers expose the CORSIKA
+            # shower id as event.event_id, while the ROOT output event id is
+            # event_array100 encoded.
+            shower_ids.append(int(event_id))
+            shower_ids = _unique(shower_ids)
+            if has_shower_event_id and shower_ids:
+                for entry in range(tree.GetEntries()):
+                    tree.GetEntry(entry)
+                    if int(tree.shower_event_id) in shower_ids:
+                        counts = counts_from_current_entry()
+                        root_file.Close()
+                        return counts
             root_file.Close()
         except Exception:
             return {}
