@@ -8,6 +8,25 @@ def _event_id(event_or_id):
     return None if event_id is None else int(event_id)
 
 
+def _candidate_event_ids(event_or_id):
+    event_id = _event_id(event_or_id)
+    candidates = []
+    if event_id is not None:
+        candidates.append(int(event_id))
+        if abs(int(event_id)) >= 100:
+            candidates.append(int(event_id) // 100)
+    shower = getattr(getattr(event_or_id, "simulation", None), "shower", None)
+    if shower is not None:
+        for name in ("shower_event_id", "event_id"):
+            value = getattr(shower, name, None)
+            if value is not None:
+                try:
+                    candidates.append(int(value))
+                except Exception:
+                    pass
+    return tuple(dict.fromkeys(candidates))
+
+
 def _native_triggered_tels(event):
     simulation = getattr(event, "simulation", None)
     triggered = getattr(simulation, "triggered_tels", None)
@@ -76,9 +95,10 @@ class LactEventSource:
         except Exception:
             return ()
 
-    def _read_root_ground_counts(self, event_id):
+    def _read_root_ground_counts(self, event_or_id):
         filename = self._input_filename
-        if filename is None or event_id is None or not str(filename).endswith(".root"):
+        event_ids = _candidate_event_ids(event_or_id)
+        if filename is None or not event_ids or not str(filename).endswith(".root"):
             return {}
         try:
             import ROOT
@@ -91,9 +111,10 @@ class LactEventSource:
             if tree is None or any(tree.GetBranch(name) is None for name in required):
                 root_file.Close()
                 return {}
+            has_shower_event_id = tree.GetBranch("shower_event_id") is not None
             for entry in range(tree.GetEntries()):
                 tree.GetEntry(entry)
-                if int(tree.event_id) == int(event_id):
+                if int(tree.event_id) in event_ids or (has_shower_event_id and int(tree.shower_event_id) in event_ids):
                     counts = {
                         "ground_gammas": float(tree.ground_gammas),
                         "ground_electrons": float(tree.ground_electrons),
@@ -138,7 +159,7 @@ class LactEventSource:
         if event_id is None:
             return {}
         if event_id not in self._ground_counts_by_event_id:
-            counts = self._read_root_ground_counts(event_id)
+            counts = self._read_root_ground_counts(event_or_id)
             if counts:
                 self._ground_counts_by_event_id[event_id] = counts
         return dict(self._ground_counts_by_event_id.get(event_id, {}))
