@@ -841,7 +841,6 @@ class EventVisualizer:
             core_x,
             core_y,
             data.azimuth_deg,
-            ground_counts=_event_ground_counts(event, source=self.source),
         )
         if info:
             ax.text(

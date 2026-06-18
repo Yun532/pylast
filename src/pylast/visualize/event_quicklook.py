@@ -24,6 +24,32 @@ def _visualizer_from(source=None, visualizer=None):
     return EventVisualizer(source)
 
 
+def _image_level_from_type(image_type: str | None = None, image_level: str | None = None) -> str:
+    """Map notebook-facing image names to pylast internal image levels."""
+
+    if image_type is None:
+        image_type = image_level or "raw"
+    key = str(image_type).strip().lower().replace("-", "_")
+    aliases = {
+        "true": "simulation",
+        "truth": "simulation",
+        "simulation": "simulation",
+        "sim": "simulation",
+        "raw": "dl0",
+        "r1": "dl0",
+        "dl0": "dl0",
+        "pe": "dl0",
+        "nsb": "dl0",
+        "raw_nsb": "dl0",
+        "clean": "dl1",
+        "cleaned": "dl1",
+        "dl1": "dl1",
+    }
+    if key not in aliases:
+        raise ValueError("image_type must be one of: true, raw, nsb, clean")
+    return aliases[key]
+
+
 def plot_event_cores(
     event=None,
     *,
@@ -377,7 +403,8 @@ def plot_gathered_images(
     root_file: str | PathLike[str] | None = None,
     event_index: int = 0,
     max_events: int = -1,
-    image_level: str = "dl0",
+    image_type: str = "raw",
+    image_level: str | None = None,
     output_path: str | PathLike[str] | None = None,
     include_non_triggered: bool = False,
     show_hillas: bool = True,
@@ -395,8 +422,14 @@ def plot_gathered_images(
     reconstructor: str = "HillasReconstructor",
     show: bool | None = None,
 ):
-    """Draw all selected telescope images in one gathered camera plane."""
+    """Draw all selected telescope images in one gathered camera plane.
 
+    ``image_type`` uses notebook-facing names: ``"true"``, ``"raw"``,
+    ``"nsb"``, or ``"clean"``. ``"nsb"`` maps to the raw image layer; it
+    shows NSB only when the upstream event already contains NSB in that layer.
+    """
+
+    image_level = _image_level_from_type(image_type=image_type, image_level=image_level)
     if ideal is not None:
         show_ideal_position = bool(ideal)
     if reco is not None:
