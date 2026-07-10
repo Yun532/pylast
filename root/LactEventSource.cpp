@@ -238,8 +238,12 @@ void LactEventSource::load_telescopes()
     Eigen::VectorXi pix_type(camera_pixels.size());
     for (std::size_t i = 0; i < camera_pixels.size(); ++i) {
         const auto& pix = camera_pixels[i];
-        pix_x[static_cast<int>(i)] = pix.x_m;
-        pix_y[static_cast<int>(i)] = pix.y_m;
+        // LACT_sim stores focal-plane hit coordinates, which follow the
+        // transverse photon propagation direction. Pylast/sim_telarray camera
+        // geometry is used as source-offset coordinates, so convert the LACT
+        // convention at the input boundary.
+        pix_x[static_cast<int>(i)] = -pix.x_m;
+        pix_y[static_cast<int>(i)] = -pix.y_m;
         pix_area_vec[static_cast<int>(i)] = pixel_area(pix.size_m, pix.shape_code);
         pix_type[static_cast<int>(i)] = lact_shape_to_pylast(pix.shape_code);
     }
