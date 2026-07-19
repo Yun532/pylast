@@ -127,6 +127,7 @@ private:
     void load_corsika_events();
     void load_observations();
     void load_waveforms();
+    void validate_waveforms() const;
     void build_event_order();
     bool keep_tel(int tel_id) const;
     int pixel_index(int pixel_id) const;
@@ -148,7 +149,9 @@ private:
     std::unordered_map<long long, CorsikaEventRow> corsika_by_event;
     std::vector<ObservationRow> observations;
     std::map<std::pair<long long, int>, std::size_t> observation_index;
+    std::unordered_map<long long, std::vector<std::size_t>> observation_indices_by_event;
     std::map<std::pair<long long, int>, WaveformRow> waveforms;
     WaveformConfig waveform_config;
+    bool has_waveform_tree = false;
     std::vector<long long> event_order;
 };

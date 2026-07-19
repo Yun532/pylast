@@ -171,10 +171,10 @@ class LactEventSource:
         if event_id is None:
             return ()
         triggered_tels = _native_triggered_tels(event)
-        if not triggered_tels:
-            triggered_tels = self._read_root_triggered_tels(event_id)
-        if triggered_tels:
-            self._triggered_tels_by_event_id[event_id] = triggered_tels
+        # The native LACT reader populates this list from the observations
+        # tree, including the valid empty-trigger case. Do not reopen and scan
+        # the complete ROOT tree once per event.
+        self._triggered_tels_by_event_id[event_id] = triggered_tels
         return triggered_tels
 
     def get_triggered_tels(self, event_or_id):
@@ -183,9 +183,8 @@ class LactEventSource:
             return []
         if not isinstance(event_or_id, int):
             triggered_tels = _native_triggered_tels(event_or_id)
-            if triggered_tels:
-                self._triggered_tels_by_event_id[event_id] = triggered_tels
-                return list(triggered_tels)
+            self._triggered_tels_by_event_id[event_id] = triggered_tels
+            return list(triggered_tels)
         if event_id not in self._triggered_tels_by_event_id:
             triggered_tels = self._read_root_triggered_tels(event_id)
             if triggered_tels:

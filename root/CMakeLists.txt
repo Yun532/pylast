@@ -20,4 +20,10 @@ target_link_libraries(test_root_read PUBLIC root_event)
 add_executable(test_root test_root.cpp RootWriter.cpp)
 target_link_libraries(test_root PUBLIC root_event root_writer simtel_event reconstructor image_processor calibrator)
 
+if(WITH_TEST)
+    add_executable(test_lact_event_source test_lact_event_source.cpp)
+    target_link_libraries(test_lact_event_source PRIVATE lact_event_source ${ROOT_LIBRARIES})
+    add_test(NAME test_lact_event_source COMMAND test_lact_event_source)
+endif()
+
 add_subdirectory(ulities)

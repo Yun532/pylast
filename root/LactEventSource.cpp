@@ -30,6 +30,15 @@ void set_branch_if_exists(TTree* tree, const char* name, T* address)
     }
 }
 
+void require_branch(TTree* tree, const char* tree_name, const char* branch_name)
+{
+    if (tree == nullptr || tree->GetBranch(branch_name) == nullptr) {
+        throw std::runtime_error(
+            std::string("missing required LACT ROOT branch: ") +
+            tree_name + "." + branch_name);
+    }
+}
+
 TTree* required_tree(TFile* file, const char* name)
 {
     auto* tree = static_cast<TTree*>(file->Get(name));
@@ -88,6 +97,7 @@ LactEventSource::LactEventSource(const std::string& filename,
         load_all_simulated_showers();
     }
     load_observations();
+    validate_waveforms();
     build_event_order();
 }
 
@@ -347,7 +357,15 @@ void LactEventSource::load_observations()
         row.image_cherenkov_pe =
             image_cherenkov_pe ? *image_cherenkov_pe : std::vector<float>{};
         row.image_time_peak_ns = peak_time ? *peak_time : std::vector<float>{};
-        observation_index[{row.event_id, row.telescope_id}] = observations.size();
+        const auto key = std::make_pair(row.event_id, row.telescope_id);
+        const std::size_t row_index = observations.size();
+        if (!observation_index.emplace(key, row_index).second) {
+            throw std::runtime_error(
+                "duplicate LACT ROOT observation for event_id=" +
+                std::to_string(row.event_id) + " telescope_id=" +
+                std::to_string(row.telescope_id));
+        }
+        observation_indices_by_event[row.event_id].push_back(row_index);
         observations.push_back(row);
     }
 }
@@ -371,6 +389,11 @@ void LactEventSource::load_waveforms()
     if (tree == nullptr) {
         return;
     }
+    has_waveform_tree = true;
+    for (const char* branch : {"event_id", "telescope_id", "n_pixels_camera",
+                               "n_time_bins", "pixel_id", "time_bin", "pe"}) {
+        require_branch(tree, "waveforms", branch);
+    }
     WaveformRow row;
     std::vector<int>* pixel_id = nullptr;
     std::vector<unsigned short>* time_bin = nullptr;
@@ -382,6 +405,7 @@ void LactEventSource::load_waveforms()
     set_branch_if_exists(tree, "pixel_id", &pixel_id);
     set_branch_if_exists(tree, "time_bin", &time_bin);
     set_branch_if_exists(tree, "pe", &pe);
+    bool have_n_time_bins = waveform_config.available && waveform_config.n_time_bins > 0;
     const auto n_entries = tree->GetEntries();
     for (Long64_t i = 0; i < n_entries; ++i) {
         tree->GetEntry(i);
@@ -391,10 +415,85 @@ void LactEventSource::load_waveforms()
         row.pixel_id = pixel_id ? *pixel_id : std::vector<int>{};
         row.time_bin = time_bin ? *time_bin : std::vector<unsigned short>{};
         row.pe = pe ? *pe : std::vector<float>{};
-        waveforms[{row.event_id, row.telescope_id}] = row;
-        if (row.n_time_bins > 0) {
+        if (row.pixel_id.size() != row.time_bin.size() ||
+            row.pixel_id.size() != row.pe.size()) {
+            throw std::runtime_error(
+                "inconsistent LACT ROOT waveform arrays for event_id=" +
+                std::to_string(row.event_id) + " telescope_id=" +
+                std::to_string(row.telescope_id));
+        }
+        if (row.n_pixels_camera != static_cast<int>(camera_pixels.size())) {
+            throw std::runtime_error(
+                "LACT ROOT waveform camera size mismatch for event_id=" +
+                std::to_string(row.event_id) + " telescope_id=" +
+                std::to_string(row.telescope_id));
+        }
+        if (row.n_time_bins <= 0) {
+            throw std::runtime_error(
+                "invalid LACT ROOT waveform n_time_bins for event_id=" +
+                std::to_string(row.event_id) + " telescope_id=" +
+                std::to_string(row.telescope_id));
+        }
+        if (have_n_time_bins && row.n_time_bins != waveform_config.n_time_bins) {
+            throw std::runtime_error(
+                "LACT ROOT waveform time-bin count mismatch for event_id=" +
+                std::to_string(row.event_id) + " telescope_id=" +
+                std::to_string(row.telescope_id));
+        }
+        for (std::size_t j = 0; j < row.pixel_id.size(); ++j) {
+            if (pixel_index(row.pixel_id[j]) < 0) {
+                throw std::runtime_error(
+                    "unknown LACT ROOT waveform pixel_id=" +
+                    std::to_string(row.pixel_id[j]) + " for event_id=" +
+                    std::to_string(row.event_id) + " telescope_id=" +
+                    std::to_string(row.telescope_id));
+            }
+            if (static_cast<int>(row.time_bin[j]) >= row.n_time_bins) {
+                throw std::runtime_error(
+                    "out-of-range LACT ROOT waveform time_bin=" +
+                    std::to_string(row.time_bin[j]) + " for event_id=" +
+                    std::to_string(row.event_id) + " telescope_id=" +
+                    std::to_string(row.telescope_id));
+            }
+        }
+        const auto key = std::make_pair(row.event_id, row.telescope_id);
+        if (!waveforms.emplace(key, row).second) {
+            throw std::runtime_error(
+                "duplicate LACT ROOT waveform for event_id=" +
+                std::to_string(row.event_id) + " telescope_id=" +
+                std::to_string(row.telescope_id));
+        }
+        if (!have_n_time_bins) {
             waveform_config.available = true;
             waveform_config.n_time_bins = row.n_time_bins;
+            have_n_time_bins = true;
+        }
+    }
+}
+
+void LactEventSource::validate_waveforms() const
+{
+    if (!has_waveform_tree) {
+        return;
+    }
+    for (const auto& item : waveforms) {
+        if (observation_index.find(item.first) == observation_index.end()) {
+            throw std::runtime_error(
+                "LACT ROOT waveform has no matching observation for event_id=" +
+                std::to_string(item.first.first) + " telescope_id=" +
+                std::to_string(item.first.second));
+        }
+    }
+    for (const auto& obs : observations) {
+        if (!obs.triggered) {
+            continue;
+        }
+        const auto key = std::make_pair(obs.event_id, obs.telescope_id);
+        if (waveforms.find(key) == waveforms.end()) {
+            throw std::runtime_error(
+                "triggered LACT ROOT observation is missing waveform for event_id=" +
+                std::to_string(obs.event_id) + " telescope_id=" +
+                std::to_string(obs.telescope_id));
         }
     }
 }
@@ -476,18 +575,17 @@ LactEventSource::dense_waveform(const ObservationRow& obs) const
     Eigen::Matrix<double, -1, -1, Eigen::RowMajor> waveform =
         Eigen::Matrix<double, -1, -1, Eigen::RowMajor>::Zero(camera_pixels.size(), n_samples);
     if (wf_it == waveforms.end()) {
-        waveform.col(0) = dense_image(obs);
-        return waveform;
+        throw std::runtime_error(
+            "missing LACT ROOT waveform for event_id=" +
+            std::to_string(obs.event_id) + " telescope_id=" +
+            std::to_string(obs.telescope_id));
     }
 
     const auto& wf = wf_it->second;
-    const auto n = std::min({wf.pixel_id.size(), wf.time_bin.size(), wf.pe.size()});
-    for (std::size_t i = 0; i < n; ++i) {
+    for (std::size_t i = 0; i < wf.pixel_id.size(); ++i) {
         const int pix = pixel_index(wf.pixel_id[i]);
         const int bin = static_cast<int>(wf.time_bin[i]);
-        if (pix >= 0 && bin >= 0 && bin < waveform.cols()) {
-            waveform(pix, bin) += static_cast<double>(wf.pe[i]);
-        }
+        waveform(pix, bin) += static_cast<double>(wf.pe[i]);
     }
     return waveform;
 }
@@ -560,12 +658,19 @@ ArrayEvent LactEventSource::get_event(int index)
         event.simulation->shower.shower_primary_id = truth.primary_type;
     }
 
+    const auto observation_rows_it = observation_indices_by_event.find(event_id);
+    if (observation_rows_it == observation_indices_by_event.end()) {
+        throw std::runtime_error(
+            "missing indexed LACT ROOT observations for event_id=" +
+            std::to_string(event_id));
+    }
+    const auto& observation_rows = observation_rows_it->second;
+
     bool use_waveform_readout = false;
-    for (const auto& obs : observations) {
-        if (obs.event_id != event_id || !keep_tel(obs.telescope_id) || !obs.triggered) {
-            continue;
-        }
-        if (waveforms.find({obs.event_id, obs.telescope_id}) != waveforms.end()) {
+    for (const std::size_t row_index : observation_rows) {
+        const auto& obs = observations[row_index];
+        if (keep_tel(obs.telescope_id) && obs.triggered &&
+            waveforms.find({obs.event_id, obs.telescope_id}) != waveforms.end()) {
             use_waveform_readout = true;
             break;
         }
@@ -574,8 +679,9 @@ ArrayEvent LactEventSource::get_event(int index)
         event.dl0 = DL0Event();
     }
 
-    for (const auto& obs : observations) {
-        if (obs.event_id != event_id || !keep_tel(obs.telescope_id)) {
+    for (const std::size_t row_index : observation_rows) {
+        const auto& obs = observations[row_index];
+        if (!keep_tel(obs.telescope_id)) {
             continue;
         }
         const Eigen::VectorXd image = dense_image(obs);
@@ -589,6 +695,7 @@ ArrayEvent LactEventSource::get_event(int index)
             event.simulation->add_tel(obs.telescope_id, std::move(sim_camera));
         }
         if (obs.triggered) {
+            event.simulation->triggered_tels.push_back(obs.telescope_id);
             if (use_waveform_readout) {
                 Eigen::Matrix<double, -1, -1, Eigen::RowMajor> waveform = dense_waveform(obs);
                 Eigen::VectorXi gain_selection = Eigen::VectorXi::Zero(waveform.rows());
