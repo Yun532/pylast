@@ -109,6 +109,50 @@ def plot_event_cores(
 plot_event_core = plot_event_cores
 
 
+def plot_event_trigger_timing(
+    event=None,
+    *,
+    source=None,
+    visualizer=None,
+    root_file: str | PathLike[str] | None = None,
+    event_index: int = 0,
+    max_events: int = -1,
+    image_level: str = "dl0",
+    output_path: str | PathLike[str] | None = None,
+    show_lhaaso_background: bool = True,
+    annotate: bool = True,
+    show: bool | None = None,
+):
+    """Draw raw versus geometrically corrected LACT array trigger timing."""
+
+    if root_file is None and _looks_like_path(event):
+        root_file = event
+        event = None
+    if root_file is not None:
+        source = LactEventSource(str(root_file), max_events=max_events)
+        event = source[event_index]
+    if event is None:
+        raise ValueError("event is required")
+    if show is None:
+        show = output_path is None
+    visualizer = _visualizer_from(source=source, visualizer=visualizer)
+    figure, axes = visualizer.plot_trigger_timing(
+        event,
+        output_path=str(output_path) if output_path is not None else None,
+        image_level=image_level,
+        show_lhaaso_background=show_lhaaso_background,
+        annotate=annotate,
+        show=show,
+    )
+    return {
+        "event": event,
+        "visualizer": visualizer,
+        "figure": figure,
+        "axes": axes,
+        "path": Path(output_path) if output_path is not None else None,
+    }
+
+
 def plot_event_sdp_planes(
     event=None,
     *,

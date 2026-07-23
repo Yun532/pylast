@@ -48,6 +48,8 @@ class LactEventSource:
     def __init__(self, *args, **kwargs):
         self._source = _NativeLactEventSource(*args, **kwargs)
         self._triggered_tels_by_event_id = {}
+        self._trigger_timing_by_event_id = {}
+        self._trigger_timing_loaded = False
         self._ground_counts_by_event_id = {}
         self._input_filename = getattr(self._source, "input_filename", None)
         if self._input_filename is None and args:
@@ -107,6 +109,69 @@ class LactEventSource:
         except Exception:
             self._event_id_mode = ""
         return self._event_id_mode
+
+    def _load_root_trigger_timing(self):
+        """Load LACT observation trigger timing once for event-level plots."""
+
+        if self._trigger_timing_loaded:
+            return
+        self._trigger_timing_loaded = True
+        filename = self._input_filename
+        if filename is None or not str(filename).lower().endswith(".root"):
+            return
+        root_file = None
+        try:
+            import ROOT
+
+            root_file = ROOT.TFile.Open(str(filename))
+            if not root_file or root_file.IsZombie():
+                return
+            tree = root_file.Get("observations")
+            required = (
+                "event_id",
+                "telescope_id",
+                "triggered",
+                "trigger_time_ns",
+            )
+            if tree is None or any(
+                tree.GetBranch(name) is None for name in required
+            ):
+                return
+            has_geometric_delay = (
+                tree.GetBranch("geometric_delay_ns") is not None
+            )
+            has_coincidence_time = (
+                tree.GetBranch("coincidence_time_ns") is not None
+            )
+            for entry in range(tree.GetEntries()):
+                tree.GetEntry(entry)
+                if not bool(tree.triggered):
+                    continue
+                event_id = int(tree.event_id)
+                telescope_id = int(tree.telescope_id)
+                raw_time = float(tree.trigger_time_ns)
+                geometric_delay = (
+                    float(tree.geometric_delay_ns)
+                    if has_geometric_delay else float("nan")
+                )
+                coincidence_time = (
+                    float(tree.coincidence_time_ns)
+                    if has_coincidence_time else float("nan")
+                )
+                if not has_coincidence_time and has_geometric_delay:
+                    coincidence_time = raw_time + geometric_delay
+                self._trigger_timing_by_event_id.setdefault(event_id, {})[
+                    telescope_id
+                ] = {
+                    "trigger_time_ns": raw_time,
+                    "geometric_delay_ns": geometric_delay,
+                    "coincidence_time_ns": coincidence_time,
+                }
+        except Exception:
+            self._trigger_timing_by_event_id.clear()
+        finally:
+            if root_file:
+                root_file.Close()
 
     def _read_root_ground_counts(self, event_or_id):
         filename = self._input_filename
@@ -200,3 +265,22 @@ class LactEventSource:
             if counts:
                 self._ground_counts_by_event_id[event_id] = counts
         return dict(self._ground_counts_by_event_id.get(event_id, {}))
+
+    def get_trigger_timing(self, event_or_id):
+        """Return per-triggered-telescope LACT timing fields for one event.
+
+        The mapping is empty for non-LACT inputs and older ROOT files without
+        ``trigger_time_ns``. New geometrically corrected LACT ROOT files also
+        provide ``geometric_delay_ns`` and ``coincidence_time_ns``.
+        """
+
+        event_id = _event_id(event_or_id)
+        if event_id is None:
+            return {}
+        self._load_root_trigger_timing()
+        return {
+            telescope_id: dict(values)
+            for telescope_id, values in self._trigger_timing_by_event_id.get(
+                event_id, {}
+            ).items()
+        }

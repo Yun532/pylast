@@ -949,6 +949,169 @@ class EventVisualizer:
             show=show,
         )
 
+    def plot_trigger_timing(
+        self,
+        event,
+        output_path: Optional[str] = None,
+        image_level: str = "dl0",
+        show_lhaaso_background: bool = True,
+        annotate: bool = True,
+        show: bool = True,
+    ):
+        """Compare raw and geometrically corrected LACT trigger times.
+
+        Marker area encodes integrated p.e. while each panel's color scale
+        encodes time relative to its first trigger. Separate scales preserve
+        the residual timing structure after correction; the titles report the
+        absolute spans for comparison. This method
+        requires the LACT ROOT adapter's ``get_trigger_timing`` interface and
+        a ROOT file containing ``coincidence_time_ns``.
+        """
+
+        get_timing = getattr(self.source, "get_trigger_timing", None)
+        if get_timing is None:
+            raise ValueError(
+                "trigger timing plots require a LACT ROOT event source"
+            )
+        timing = get_timing(event)
+        tel_ids = sorted(
+            telescope_id
+            for telescope_id in timing
+            if telescope_id in self.tel_geoms
+        )
+        if not tel_ids:
+            raise ValueError("no triggered telescope timing is available")
+
+        raw_times = np.asarray(
+            [timing[telescope_id]["trigger_time_ns"] for telescope_id in tel_ids],
+            dtype=float,
+        )
+        corrected_times = np.asarray(
+            [
+                timing[telescope_id].get("coincidence_time_ns", np.nan)
+                for telescope_id in tel_ids
+            ],
+            dtype=float,
+        )
+        if not np.all(np.isfinite(raw_times)):
+            raise ValueError("raw LACT trigger times must be finite")
+        if not np.all(np.isfinite(corrected_times)):
+            raise ValueError(
+                "coincidence_time_ns is unavailable; regenerate the LACT ROOT "
+                "file with plane-wave array timing enabled"
+            )
+
+        raw_relative = raw_times - float(np.min(raw_times))
+        corrected_relative = corrected_times - float(np.min(corrected_times))
+        raw_span = float(np.ptp(raw_times))
+        corrected_span = float(np.ptp(corrected_times))
+
+        data = read_event_data(event, self.tel_geoms, image_level=image_level)
+        pe = np.asarray(
+            [max(0.0, data.image_sum_by_tel.get(telescope_id, 0.0))
+             for telescope_id in tel_ids],
+            dtype=float,
+        )
+        pe_max = max(float(np.max(pe)), 1.0)
+        marker_sizes = 80.0 + 210.0 * np.sqrt(pe / pe_max)
+        east = np.asarray(
+            [self.tel_geoms[telescope_id].pos_x for telescope_id in tel_ids],
+            dtype=float,
+        )
+        north = np.asarray(
+            [self.tel_geoms[telescope_id].pos_y for telescope_id in tel_ids],
+            dtype=float,
+        )
+        all_tel_ids = sorted(self.tel_geoms)
+        all_east = np.asarray(
+            [self.tel_geoms[telescope_id].pos_x for telescope_id in all_tel_ids],
+            dtype=float,
+        )
+        all_north = np.asarray(
+            [self.tel_geoms[telescope_id].pos_y for telescope_id in all_tel_ids],
+            dtype=float,
+        )
+
+        fig, axes = plt.subplots(
+            1, 2, figsize=(14.6, 7.0), sharex=True, sharey=True,
+            constrained_layout=True,
+        )
+        panels = (
+            ("Raw local camera trigger", raw_relative, raw_span),
+            ("Plane-wave corrected coincidence", corrected_relative,
+             corrected_span),
+        )
+        scatters = []
+        for ax, (title, relative_times, span_ns) in zip(axes, panels):
+            if show_lhaaso_background:
+                draw_lhaaso_background(
+                    ax, set_limits=False, show_legend=False
+                )
+            ax.scatter(
+                all_east, all_north, s=42, facecolors="none",
+                edgecolors="0.55", linewidth=0.7, zorder=2,
+            )
+            panel_norm = Normalize(vmin=0.0, vmax=max(span_ns, 1.0))
+            scatter = ax.scatter(
+                east, north, s=marker_sizes, c=relative_times,
+                cmap="viridis", norm=panel_norm, edgecolor="0.08",
+                linewidth=0.8, zorder=4,
+            )
+            scatters.append(scatter)
+            ax.scatter(
+                [data.core_x], [data.core_y], marker="*", s=210,
+                c="#d73027", edgecolor="white", linewidth=0.8,
+                label="True core", zorder=6,
+            )
+            if data.azimuth_deg is not None:
+                span = max(float(np.ptp(all_east)), float(np.ptp(all_north)), 1.0)
+                _add_arrival_arrow(
+                    ax, data.core_x, data.core_y, data.azimuth_deg, span,
+                    mode="incoming", color="#b2182b", label="Arrival direction",
+                    line_style="-",
+                )
+            if annotate:
+                for index, telescope_id in enumerate(tel_ids):
+                    label = (
+                        f"T{telescope_id + 1}\n"
+                        f"{pe[index]:.0f} pe\n"
+                        f"Δt {relative_times[index]:.1f} ns"
+                    )
+                    ax.annotate(
+                        label,
+                        xy=(east[index], north[index]),
+                        xytext=(4.0, 4.0), textcoords="offset points",
+                        ha="left", va="bottom", fontsize=6.6, color="0.10",
+                        bbox=dict(
+                            boxstyle="round,pad=0.18", facecolor="white",
+                            edgecolor="none", alpha=0.76,
+                        ),
+                        zorder=7,
+                    )
+            ax.set_title(f"{title}\nspan = {span_ns:.2f} ns")
+            ax.set_xlabel("East (m)")
+            ax.grid(True, alpha=0.22, linewidth=0.55)
+            ax.tick_params(direction="in", top=True, right=True)
+            ax.set_aspect("equal", adjustable="box")
+        axes[0].set_ylabel("North (m)")
+        handles, labels = axes[0].get_legend_handles_labels()
+        if handles:
+            axes[0].legend(handles, labels, loc="upper right", fontsize=8)
+        for ax, scatter in zip(axes, scatters):
+            colorbar = fig.colorbar(
+                scatter, ax=ax, fraction=0.042, pad=0.025,
+            )
+            colorbar.set_label("Time since first trigger (ns)")
+            colorbar.locator = MaxNLocator(nbins=6)
+            colorbar.update_ticks()
+        fig.suptitle(
+            f"LACT array trigger timing event_id={data.event_id}\n"
+            "marker size encodes p.e.; corrected = raw + geometric delay",
+            fontsize=14,
+        )
+        self._finish(fig, output_path, show)
+        return fig, axes
+
     def plot_event_sdp_planes(
         self,
         event,
