@@ -50,6 +50,10 @@ class LactEventSource:
         self._triggered_tels_by_event_id = {}
         self._trigger_timing_by_event_id = {}
         self._trigger_timing_loaded = False
+        self._waveform_timing_loaded = False
+        self._waveform_time_centers_ns = ()
+        self._waveform_time_reference = ""
+        self._waveform_reference_by_event_id = {}
         self._ground_counts_by_event_id = {}
         self._input_filename = getattr(self._source, "input_filename", None)
         if self._input_filename is None and args:
@@ -143,6 +147,12 @@ class LactEventSource:
             has_coincidence_time = (
                 tree.GetBranch("coincidence_time_ns") is not None
             )
+            has_first_trigger_time = (
+                tree.GetBranch("trigger_first_time_ns") is not None
+            )
+            has_max_multiplicity_time = (
+                tree.GetBranch("trigger_max_multiplicity_time_ns") is not None
+            )
             for entry in range(tree.GetEntries()):
                 tree.GetEntry(entry)
                 if not bool(tree.triggered):
@@ -150,6 +160,14 @@ class LactEventSource:
                 event_id = int(tree.event_id)
                 telescope_id = int(tree.telescope_id)
                 raw_time = float(tree.trigger_time_ns)
+                first_trigger_time = (
+                    float(tree.trigger_first_time_ns)
+                    if has_first_trigger_time else raw_time
+                )
+                max_multiplicity_time = (
+                    float(tree.trigger_max_multiplicity_time_ns)
+                    if has_max_multiplicity_time else raw_time
+                )
                 geometric_delay = (
                     float(tree.geometric_delay_ns)
                     if has_geometric_delay else float("nan")
@@ -164,11 +182,78 @@ class LactEventSource:
                     telescope_id
                 ] = {
                     "trigger_time_ns": raw_time,
+                    "trigger_first_time_ns": first_trigger_time,
+                    "trigger_max_multiplicity_time_ns": max_multiplicity_time,
+                    "trigger_diagnostics_available":
+                        has_first_trigger_time and has_max_multiplicity_time,
                     "geometric_delay_ns": geometric_delay,
                     "coincidence_time_ns": coincidence_time,
                 }
         except Exception:
             self._trigger_timing_by_event_id.clear()
+        finally:
+            if root_file:
+                root_file.Close()
+
+    def _load_root_waveform_timing(self):
+        """Load the common waveform time axis and per-image reference times."""
+
+        if self._waveform_timing_loaded:
+            return
+        self._waveform_timing_loaded = True
+        filename = self._input_filename
+        if filename is None or not str(filename).lower().endswith(".root"):
+            return
+        root_file = None
+        try:
+            import ROOT
+
+            root_file = ROOT.TFile.Open(str(filename))
+            if not root_file or root_file.IsZombie():
+                return
+            config = root_file.Get("waveform_config")
+            if config is None or config.GetEntries() <= 0:
+                return
+            if config.GetBranch("time_centers_ns") is None:
+                return
+            config.GetEntry(0)
+            self._waveform_time_centers_ns = tuple(
+                float(value) for value in config.time_centers_ns
+            )
+            if config.GetBranch("time_reference") is not None:
+                self._waveform_time_reference = str(
+                    config.time_reference
+                ).strip()
+
+            observations = root_file.Get("observations")
+            reference_branch = {
+                "image_first": "time_first_ns",
+                "image_mean": "time_mean_ns",
+            }.get(self._waveform_time_reference)
+            required = ("event_id", "telescope_id")
+            if (
+                observations is None
+                or reference_branch is None
+                or observations.GetBranch(reference_branch) is None
+                or any(
+                    observations.GetBranch(name) is None for name in required
+                )
+            ):
+                return
+            for entry in range(observations.GetEntries()):
+                observations.GetEntry(entry)
+                event_id = int(observations.event_id)
+                telescope_id = int(observations.telescope_id)
+                reference_time = float(
+                    getattr(observations, reference_branch)
+                )
+                self._waveform_reference_by_event_id.setdefault(
+                    event_id, {}
+                )[telescope_id] = reference_time
+        except Exception:
+            self._waveform_time_centers_ns = ()
+            self._waveform_time_reference = ""
+            self._waveform_reference_by_event_id.clear()
         finally:
             if root_file:
                 root_file.Close()
@@ -283,4 +368,39 @@ class LactEventSource:
             for telescope_id, values in self._trigger_timing_by_event_id.get(
                 event_id, {}
             ).items()
+        }
+
+    def get_waveform_timing(self, event_or_id, telescope_id):
+        """Return the LACT waveform axis and its time-reference metadata.
+
+        ``time_centers_ns`` is the axis stored in ``waveform_config``. For
+        ``image_first`` and ``image_mean`` references, ``absolute_time_ns``
+        adds the corresponding observation-level reference time.
+        """
+
+        event_id = _event_id(event_or_id)
+        if event_id is None:
+            return {}
+        self._load_root_waveform_timing()
+        if not self._waveform_time_centers_ns:
+            return {}
+        reference_time = self._waveform_reference_by_event_id.get(
+            event_id, {}
+        ).get(int(telescope_id))
+        if reference_time is None:
+            reference_time = (
+                float("nan")
+                if self._waveform_time_reference in {
+                    "image_first", "image_mean"
+                }
+                else 0.0
+            )
+        return {
+            "time_centers_ns": list(self._waveform_time_centers_ns),
+            "time_reference": self._waveform_time_reference,
+            "reference_time_ns": float(reference_time),
+            "absolute_time_ns": [
+                float(reference_time + center)
+                for center in self._waveform_time_centers_ns
+            ],
         }

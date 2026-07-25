@@ -949,6 +949,137 @@ class EventVisualizer:
             show=show,
         )
 
+    def plot_pe_time_series(
+        self,
+        event,
+        telescope_ids: Optional[Iterable[int]] = None,
+        output_path: Optional[str] = None,
+        absolute_time: bool = False,
+        cumulative: bool = False,
+        show_trigger: bool = True,
+        show: bool = True,
+    ):
+        """Plot camera-integrated p.e. versus time for selected telescopes.
+
+        Each curve is the sum over all camera pixels in one R1 waveform time
+        bin. By default, triggered telescopes are used; if trigger metadata is
+        unavailable, all telescopes with an R1 waveform are shown.
+        """
+
+        r1 = getattr(event, "r1", None)
+        telescope_waveforms = getattr(r1, "tels", {}) if r1 is not None else {}
+        available = sorted(
+            int(telescope_id) for telescope_id in telescope_waveforms
+        )
+        if telescope_ids is None:
+            triggered = set(_triggered_tel_ids(event, source=self.source))
+            telescope_ids = [
+                telescope_id for telescope_id in available
+                if telescope_id in triggered
+            ] or available
+        else:
+            telescope_ids = [
+                int(telescope_id) for telescope_id in telescope_ids
+                if int(telescope_id) in telescope_waveforms
+            ]
+        if not telescope_ids:
+            raise ValueError("no R1 p.e. waveform is available for this event")
+
+        get_waveform_timing = getattr(
+            self.source, "get_waveform_timing", None
+        )
+        trigger_timing = {}
+        get_trigger_timing = getattr(self.source, "get_trigger_timing", None)
+        if show_trigger and get_trigger_timing is not None:
+            trigger_timing = get_trigger_timing(event)
+
+        fig, ax = plt.subplots(figsize=(10.2, 6.2), constrained_layout=True)
+        used_absolute_time = absolute_time
+        for telescope_id in telescope_ids:
+            camera = telescope_waveforms[telescope_id]
+            waveform = np.asarray(camera.waveform, dtype=float)
+            if waveform.ndim != 2:
+                raise ValueError(
+                    f"R1 waveform for telescope {telescope_id} must be 2D"
+                )
+            pe_per_bin = np.sum(waveform, axis=0)
+            if cumulative:
+                pe_per_bin = np.cumsum(pe_per_bin)
+
+            metadata = (
+                get_waveform_timing(event, telescope_id)
+                if get_waveform_timing is not None else {}
+            )
+            axis_key = "absolute_time_ns" if absolute_time else "time_centers_ns"
+            time_axis = np.asarray(metadata.get(axis_key, []), dtype=float)
+            has_time_axis = (
+                time_axis.size == pe_per_bin.size
+                and np.all(np.isfinite(time_axis))
+            )
+            if not has_time_axis:
+                time_axis = np.arange(pe_per_bin.size, dtype=float)
+                used_absolute_time = False
+            line, = ax.plot(
+                time_axis,
+                pe_per_bin,
+                linewidth=1.5,
+                label=(
+                    f"T{telescope_id + 1} "
+                    f"(sum={float(np.sum(waveform)):.1f} p.e.)"
+                ),
+            )
+
+            timing = trigger_timing.get(telescope_id, {})
+            trigger_time = timing.get("trigger_first_time_ns", np.nan)
+            if show_trigger and has_time_axis and np.isfinite(trigger_time):
+                reference_time = float(
+                    metadata.get("reference_time_ns", 0.0)
+                )
+                if not absolute_time:
+                    trigger_time -= reference_time
+                ax.axvline(
+                    trigger_time,
+                    color=line.get_color(),
+                    linestyle="--",
+                    linewidth=0.9,
+                    alpha=0.75,
+                    label=f"T{telescope_id + 1} first threshold",
+                )
+                max_time = timing.get(
+                    "trigger_max_multiplicity_time_ns", np.nan
+                )
+                if np.isfinite(max_time) and not np.isclose(
+                    max_time,
+                    timing.get("trigger_first_time_ns", np.nan),
+                ):
+                    if not absolute_time:
+                        max_time -= reference_time
+                    ax.axvline(
+                        max_time,
+                        color=line.get_color(),
+                        linestyle=":",
+                        linewidth=1.1,
+                        alpha=0.85,
+                        label=f"T{telescope_id + 1} max multiplicity",
+                    )
+
+        reference = "absolute arrival time" if used_absolute_time else (
+            "waveform time relative to its configured reference"
+        )
+        ax.set_xlabel(f"{reference} (ns)")
+        ax.set_ylabel(
+            "Cumulative integrated p.e."
+            if cumulative else "Camera-integrated p.e. per time bin"
+        )
+        ax.set_title(
+            f"LACT p.e. time series event_id={getattr(event, 'event_id', '')}"
+        )
+        ax.grid(True, alpha=0.25)
+        ax.tick_params(direction="in", top=True, right=True)
+        ax.legend(fontsize=8, ncols=2)
+        self._finish(fig, output_path, show)
+        return fig, ax
+
     def plot_trigger_timing(
         self,
         event,
@@ -958,7 +1089,7 @@ class EventVisualizer:
         annotate: bool = True,
         show: bool = True,
     ):
-        """Compare raw and geometrically corrected LACT trigger times.
+        """Compare first, maximum-multiplicity, and corrected trigger times.
 
         Marker area encodes integrated p.e. while each panel's color scale
         encodes time relative to its first trigger. Separate scales preserve
@@ -982,8 +1113,30 @@ class EventVisualizer:
         if not tel_ids:
             raise ValueError("no triggered telescope timing is available")
 
-        raw_times = np.asarray(
-            [timing[telescope_id]["trigger_time_ns"] for telescope_id in tel_ids],
+        first_times = np.asarray(
+            [
+                timing[telescope_id].get(
+                    "trigger_first_time_ns",
+                    timing[telescope_id]["trigger_time_ns"],
+                )
+                for telescope_id in tel_ids
+            ],
+            dtype=float,
+        )
+        has_diagnostics = all(
+            timing[telescope_id].get(
+                "trigger_diagnostics_available", False
+            )
+            for telescope_id in tel_ids
+        )
+        max_multiplicity_times = np.asarray(
+            [
+                timing[telescope_id].get(
+                    "trigger_max_multiplicity_time_ns",
+                    timing[telescope_id]["trigger_time_ns"],
+                )
+                for telescope_id in tel_ids
+            ],
             dtype=float,
         )
         corrected_times = np.asarray(
@@ -993,17 +1146,23 @@ class EventVisualizer:
             ],
             dtype=float,
         )
-        if not np.all(np.isfinite(raw_times)):
-            raise ValueError("raw LACT trigger times must be finite")
+        if not np.all(np.isfinite(first_times)):
+            raise ValueError("first LACT trigger times must be finite")
+        if has_diagnostics and not np.all(np.isfinite(max_multiplicity_times)):
+            raise ValueError("maximum-multiplicity trigger times must be finite")
         if not np.all(np.isfinite(corrected_times)):
             raise ValueError(
                 "coincidence_time_ns is unavailable; regenerate the LACT ROOT "
                 "file with plane-wave array timing enabled"
             )
 
-        raw_relative = raw_times - float(np.min(raw_times))
+        first_relative = first_times - float(np.min(first_times))
+        max_multiplicity_relative = (
+            max_multiplicity_times - float(np.min(max_multiplicity_times))
+        )
         corrected_relative = corrected_times - float(np.min(corrected_times))
-        raw_span = float(np.ptp(raw_times))
+        first_span = float(np.ptp(first_times))
+        max_multiplicity_span = float(np.ptp(max_multiplicity_times))
         corrected_span = float(np.ptp(corrected_times))
 
         data = read_event_data(event, self.tel_geoms, image_level=image_level)
@@ -1031,20 +1190,37 @@ class EventVisualizer:
             [self.tel_geoms[telescope_id].pos_y for telescope_id in all_tel_ids],
             dtype=float,
         )
+        array_span = max(
+            float(np.ptp(all_east)), float(np.ptp(all_north)), 1.0
+        )
+        array_pad = 0.18 * array_span
 
+        panels = [
+            ("First camera threshold crossing", first_relative, first_span),
+        ]
+        if has_diagnostics:
+            panels.append((
+                "Maximum camera multiplicity (diagnostic)",
+                max_multiplicity_relative,
+                max_multiplicity_span,
+            ))
+        panels.append((
+            "Plane-wave corrected coincidence",
+            corrected_relative,
+            corrected_span,
+        ))
         fig, axes = plt.subplots(
-            1, 2, figsize=(14.6, 7.0), sharex=True, sharey=True,
+            1, len(panels),
+            figsize=(7.2 * len(panels), 7.0),
+            sharex=True, sharey=True,
             constrained_layout=True,
         )
-        panels = (
-            ("Raw local camera trigger", raw_relative, raw_span),
-            ("Plane-wave corrected coincidence", corrected_relative,
-             corrected_span),
-        )
+        axes = np.atleast_1d(axes)
         scatters = []
         for ax, (title, relative_times, span_ns) in zip(axes, panels):
+            background = {}
             if show_lhaaso_background:
-                draw_lhaaso_background(
+                background = draw_lhaaso_background(
                     ax, set_limits=False, show_legend=False
                 )
             ax.scatter(
@@ -1058,15 +1234,28 @@ class EventVisualizer:
                 linewidth=0.8, zorder=4,
             )
             scatters.append(scatter)
+            if annotate:
+                triggered_ids = set(tel_ids)
+                for telescope_id in all_tel_ids:
+                    if telescope_id in triggered_ids:
+                        continue
+                    geom = self.tel_geoms[telescope_id]
+                    ax.annotate(
+                        f"T{telescope_id + 1}",
+                        xy=(geom.pos_x, geom.pos_y),
+                        xytext=(3.0, 3.0),
+                        textcoords="offset points",
+                        ha="left", va="bottom", fontsize=5.7,
+                        color="0.38", zorder=3,
+                    )
             ax.scatter(
                 [data.core_x], [data.core_y], marker="*", s=210,
                 c="#d73027", edgecolor="white", linewidth=0.8,
                 label="True core", zorder=6,
             )
             if data.azimuth_deg is not None:
-                span = max(float(np.ptp(all_east)), float(np.ptp(all_north)), 1.0)
                 _add_arrival_arrow(
-                    ax, data.core_x, data.core_y, data.azimuth_deg, span,
+                    ax, data.core_x, data.core_y, data.azimuth_deg, array_span,
                     mode="incoming", color="#b2182b", label="Arrival direction",
                     line_style="-",
                 )
@@ -1088,12 +1277,50 @@ class EventVisualizer:
                         ),
                         zorder=7,
                     )
+            limit_east = np.concatenate([
+                all_east, np.asarray([data.core_x], dtype=float)
+            ])
+            limit_north = np.concatenate([
+                all_north, np.asarray([data.core_y], dtype=float)
+            ])
+            if show_lhaaso_background:
+                bg_east = []
+                bg_north = []
+                for key in ("ed", "md"):
+                    positions = background.get(key)
+                    if positions is not None and np.asarray(positions).size:
+                        bg_east.extend(np.asarray(positions)[:, 0].tolist())
+                        bg_north.extend(np.asarray(positions)[:, 1].tolist())
+                if bg_east and bg_north:
+                    limit_east = np.concatenate([
+                        limit_east, np.asarray(bg_east, dtype=float)
+                    ])
+                    limit_north = np.concatenate([
+                        limit_north, np.asarray(bg_north, dtype=float)
+                    ])
+            ax.set_xlim(
+                float(np.min(limit_east)) - array_pad,
+                float(np.max(limit_east)) + array_pad,
+            )
+            ax.set_ylim(
+                float(np.min(limit_north)) - array_pad,
+                float(np.max(limit_north)) + array_pad,
+            )
             ax.set_title(f"{title}\nspan = {span_ns:.2f} ns")
             ax.set_xlabel("East (m)")
             ax.grid(True, alpha=0.22, linewidth=0.55)
             ax.tick_params(direction="in", top=True, right=True)
             ax.set_aspect("equal", adjustable="box")
         axes[0].set_ylabel("North (m)")
+        x_min, x_max = axes[0].get_xlim()
+        y_min, y_max = axes[0].get_ylim()
+        compass_length = 0.075 * min(x_max - x_min, y_max - y_min)
+        _add_array_compass(
+            axes[0],
+            x_min + 0.070 * (x_max - x_min),
+            y_min + 0.085 * (y_max - y_min),
+            compass_length,
+        )
         handles, labels = axes[0].get_legend_handles_labels()
         if handles:
             axes[0].legend(handles, labels, loc="upper right", fontsize=8)
@@ -1106,7 +1333,7 @@ class EventVisualizer:
             colorbar.update_ticks()
         fig.suptitle(
             f"LACT array trigger timing event_id={data.event_id}\n"
-            "marker size encodes p.e.; corrected = raw + geometric delay",
+            "marker size encodes p.e.; corrected = first trigger + geometric delay",
             fontsize=14,
         )
         self._finish(fig, output_path, show)

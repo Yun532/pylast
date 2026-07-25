@@ -153,6 +153,52 @@ def plot_event_trigger_timing(
     }
 
 
+def plot_event_pe_time_series(
+    event=None,
+    *,
+    source=None,
+    visualizer=None,
+    root_file: str | PathLike[str] | None = None,
+    event_index: int = 0,
+    max_events: int = -1,
+    telescope_ids=None,
+    output_path: str | PathLike[str] | None = None,
+    absolute_time: bool = False,
+    cumulative: bool = False,
+    show_trigger: bool = True,
+    show: bool | None = None,
+):
+    """Draw camera-integrated R1 p.e. time series for one LACT event."""
+
+    if root_file is None and _looks_like_path(event):
+        root_file = event
+        event = None
+    if root_file is not None:
+        source = LactEventSource(str(root_file), max_events=max_events)
+        event = source[event_index]
+    if event is None:
+        raise ValueError("event is required")
+    if show is None:
+        show = output_path is None
+    visualizer = _visualizer_from(source=source, visualizer=visualizer)
+    figure, axis = visualizer.plot_pe_time_series(
+        event,
+        telescope_ids=telescope_ids,
+        output_path=str(output_path) if output_path is not None else None,
+        absolute_time=absolute_time,
+        cumulative=cumulative,
+        show_trigger=show_trigger,
+        show=show,
+    )
+    return {
+        "event": event,
+        "visualizer": visualizer,
+        "figure": figure,
+        "axis": axis,
+        "path": Path(output_path) if output_path is not None else None,
+    }
+
+
 def plot_event_sdp_planes(
     event=None,
     *,
