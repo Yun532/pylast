@@ -1089,14 +1089,12 @@ class EventVisualizer:
         annotate: bool = True,
         show: bool = True,
     ):
-        """Compare first, maximum-multiplicity, and corrected trigger times.
+        """Plot first-trigger delay and p.e. on the LACT array layout.
 
-        Marker area encodes integrated p.e. while each panel's color scale
-        encodes time relative to its first trigger. Separate scales preserve
-        the residual timing structure after correction; the titles report the
-        absolute spans for comparison. This method
-        requires the LACT ROOT adapter's ``get_trigger_timing`` interface and
-        a ROOT file containing ``coincidence_time_ns``.
+        The color scale follows :meth:`plot_event_cores` and encodes total
+        integrated p.e. Relative first-trigger delays are written next to the
+        triggered telescopes. This method requires the LACT ROOT adapter's
+        ``get_trigger_timing`` interface.
         """
 
         get_timing = getattr(self.source, "get_trigger_timing", None)
@@ -1123,47 +1121,11 @@ class EventVisualizer:
             ],
             dtype=float,
         )
-        has_diagnostics = all(
-            timing[telescope_id].get(
-                "trigger_diagnostics_available", False
-            )
-            for telescope_id in tel_ids
-        )
-        max_multiplicity_times = np.asarray(
-            [
-                timing[telescope_id].get(
-                    "trigger_max_multiplicity_time_ns",
-                    timing[telescope_id]["trigger_time_ns"],
-                )
-                for telescope_id in tel_ids
-            ],
-            dtype=float,
-        )
-        corrected_times = np.asarray(
-            [
-                timing[telescope_id].get("coincidence_time_ns", np.nan)
-                for telescope_id in tel_ids
-            ],
-            dtype=float,
-        )
         if not np.all(np.isfinite(first_times)):
             raise ValueError("first LACT trigger times must be finite")
-        if has_diagnostics and not np.all(np.isfinite(max_multiplicity_times)):
-            raise ValueError("maximum-multiplicity trigger times must be finite")
-        if not np.all(np.isfinite(corrected_times)):
-            raise ValueError(
-                "coincidence_time_ns is unavailable; regenerate the LACT ROOT "
-                "file with plane-wave array timing enabled"
-            )
 
         first_relative = first_times - float(np.min(first_times))
-        max_multiplicity_relative = (
-            max_multiplicity_times - float(np.min(max_multiplicity_times))
-        )
-        corrected_relative = corrected_times - float(np.min(corrected_times))
         first_span = float(np.ptp(first_times))
-        max_multiplicity_span = float(np.ptp(max_multiplicity_times))
-        corrected_span = float(np.ptp(corrected_times))
 
         data = read_event_data(event, self.tel_geoms, image_level=image_level)
         pe = np.asarray(
@@ -1171,8 +1133,7 @@ class EventVisualizer:
              for telescope_id in tel_ids],
             dtype=float,
         )
-        pe_max = max(float(np.max(pe)), 1.0)
-        marker_sizes = 80.0 + 210.0 * np.sqrt(pe / pe_max)
+        marker_sizes = 86.0
         east = np.asarray(
             [self.tel_geoms[telescope_id].pos_x for telescope_id in tel_ids],
             dtype=float,
@@ -1198,17 +1159,6 @@ class EventVisualizer:
         panels = [
             ("First camera threshold crossing", first_relative, first_span),
         ]
-        if has_diagnostics:
-            panels.append((
-                "Maximum camera multiplicity (diagnostic)",
-                max_multiplicity_relative,
-                max_multiplicity_span,
-            ))
-        panels.append((
-            "Plane-wave corrected coincidence",
-            corrected_relative,
-            corrected_span,
-        ))
         fig, axes = plt.subplots(
             1, len(panels),
             figsize=(7.2 * len(panels), 7.0),
@@ -1227,11 +1177,25 @@ class EventVisualizer:
                 all_east, all_north, s=42, facecolors="none",
                 edgecolors="0.55", linewidth=0.7, zorder=2,
             )
-            panel_norm = Normalize(vmin=0.0, vmax=max(span_ns, 1.0))
+            positive_pe = pe[pe > 0.0]
+            if positive_pe.size:
+                pe_min = float(np.min(positive_pe))
+                pe_max = float(np.max(positive_pe))
+                if np.isclose(pe_min, pe_max):
+                    pe_pad = max(abs(pe_max) * 0.05, 1.0)
+                    pe_min = max(0.0, pe_max - pe_pad)
+                    pe_max += pe_pad
+                panel_norm = Normalize(vmin=pe_min, vmax=pe_max)
+            else:
+                panel_norm = Normalize(vmin=0.0, vmax=1.0)
             scatter = ax.scatter(
-                east, north, s=marker_sizes, c=relative_times,
-                cmap="inferno", norm=panel_norm, edgecolor="#d73027",
-                linewidth=1.8, zorder=4,
+                east, north, s=marker_sizes, c=pe,
+                cmap="inferno", norm=panel_norm, edgecolor="0.08",
+                linewidth=0.35, zorder=4,
+            )
+            ax.scatter(
+                east, north, s=marker_sizes * 1.35, facecolors="none",
+                edgecolors="#d73027", linewidth=1.8, zorder=6,
             )
             scatters.append(scatter)
             if annotate:
@@ -1328,12 +1292,13 @@ class EventVisualizer:
             colorbar = fig.colorbar(
                 scatter, ax=ax, fraction=0.042, pad=0.025,
             )
-            colorbar.set_label("Time since first trigger (ns)")
-            colorbar.locator = MaxNLocator(nbins=6)
+            colorbar.set_label(_total_quantity_label("pe"))
+            colorbar.locator = MaxNLocator(nbins=4)
+            colorbar.formatter = FormatStrFormatter("%.3g")
             colorbar.update_ticks()
         fig.suptitle(
             f"LACT array trigger timing event_id={data.event_id}\n"
-            "marker size encodes p.e.; corrected = first trigger + geometric delay",
+            "color encodes p.e.; labels show delay from the first trigger",
             fontsize=14,
         )
         self._finish(fig, output_path, show)
