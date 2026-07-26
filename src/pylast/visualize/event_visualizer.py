@@ -1230,8 +1230,8 @@ class EventVisualizer:
             panel_norm = Normalize(vmin=0.0, vmax=max(span_ns, 1.0))
             scatter = ax.scatter(
                 east, north, s=marker_sizes, c=relative_times,
-                cmap="viridis", norm=panel_norm, edgecolor="0.08",
-                linewidth=0.8, zorder=4,
+                cmap="inferno", norm=panel_norm, edgecolor="#d73027",
+                linewidth=1.8, zorder=4,
             )
             scatters.append(scatter)
             if annotate:
@@ -1249,7 +1249,7 @@ class EventVisualizer:
                         color="0.38", zorder=3,
                     )
             ax.scatter(
-                [data.core_x], [data.core_y], marker="*", s=210,
+                [data.core_x], [data.core_y], marker="*", s=230,
                 c="#d73027", edgecolor="white", linewidth=0.8,
                 label="True core", zorder=6,
             )
