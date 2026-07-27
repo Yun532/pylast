@@ -3,6 +3,7 @@
 #include "TFile.h"
 #include "TTree.h"
 
+#include <cmath>
 #include <filesystem>
 #include <iostream>
 #include <stdexcept>
@@ -35,8 +36,8 @@ void writeFixture(const std::filesystem::path& path, WaveformCase waveform_case)
     config.Write();
 
     int pixel_id = 1;
-    double x_m = 0.0;
-    double y_m = 0.0;
+    double x_m = 0.03;
+    double y_m = -0.04;
     double size_m = 0.05;
     int shape_code = 1;
     TTree camera("camera_pixels", "camera_pixels");
@@ -186,6 +187,14 @@ int main()
                 "native triggered telescope list");
         require(second.simulation->triggered_tels.empty(),
                 "empty trigger list must remain valid");
+        require(complete_source.subarray.has_value(),
+                "LACT subarray must be available");
+        const auto& geometry = complete_source.subarray->tels.at(0)
+                                   .camera_description.camera_geometry;
+        require(std::abs(geometry.pix_x[0] - 0.04) < 1.0e-12,
+                "LACT v must map to negative pylast pix_x");
+        require(std::abs(geometry.pix_y[0] - 0.03) < 1.0e-12,
+                "LACT u must map to pylast pix_y");
 
         LactEventSource filtered_source(complete.string(), -1, {1});
         require(filtered_source.event_count() == 0,
