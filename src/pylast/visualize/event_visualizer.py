@@ -22,6 +22,7 @@ from matplotlib.patches import Ellipse
 from matplotlib.ticker import FormatStrFormatter, MaxNLocator
 from mpl_toolkits.axes_grid1 import make_axes_locatable
 
+from ..helper import convert_to_fov
 from .lhaaso_background import draw_lhaaso_background
 
 
@@ -389,6 +390,17 @@ def _camera_basis(azimuth_rad: float, zenith_rad: float):
     return e_az, e_el, optical_axis
 
 
+def _camera_to_plot_xy(camera_x, camera_y):
+    """Map canonical pylast camera coordinates to the original plot order.
+
+    Pylast reconstruction uses camera ``x`` for the elevation-like offset and
+    camera ``y`` for the azimuth-like offset. The original camera renderer
+    displays camera ``y`` horizontally and camera ``x`` vertically.
+    """
+
+    return camera_y, camera_x
+
+
 def incident_point_on_camera(
     source_azimuth_rad: float,
     source_zenith_rad: float,
@@ -399,27 +411,36 @@ def incident_point_on_camera(
     flip_x: float = 1.0,
     flip_y: float = 1.0,
 ):
-    """Project a sky direction onto the telescope camera plane."""
+    """Project a sky direction into canonical pylast camera coordinates.
 
-    e_az, e_el, optical_axis = _camera_basis(telescope_azimuth_rad, telescope_zenith_rad)
-    source = _enu_from_az_zd(source_azimuth_rad, source_zenith_rad)
+    The first two return values follow :func:`pylast.helper.convert_to_fov`:
+    camera ``x`` is the elevation-like tangent-plane offset and camera ``y``
+    is the azimuth-like offset. With a focal length, the final two values are
+    the corresponding focal-plane positions in the focal-length unit.
+    """
 
-    camera_x = source @ e_az
-    camera_y = source @ e_el
-    camera_z = source @ optical_axis
-    theta_x = np.arctan2(camera_x, camera_z)
-    theta_y = np.arctan2(camera_y, camera_z)
+    camera_x, camera_y = convert_to_fov(
+        np.pi / 2.0 - source_zenith_rad,
+        source_azimuth_rad,
+        np.pi / 2.0 - telescope_zenith_rad,
+        telescope_azimuth_rad,
+    )
+    camera_x = float(camera_x)
+    camera_y = float(camera_y)
 
     cos_rot = np.cos(_rad(camera_rotation_deg))
     sin_rot = np.sin(_rad(camera_rotation_deg))
-    theta_x_rot = cos_rot * theta_x + sin_rot * theta_y
-    theta_y_rot = -sin_rot * theta_x + cos_rot * theta_y
-    theta_x_rot *= flip_x
-    theta_y_rot *= flip_y
+    camera_x_rot = (cos_rot * camera_x + sin_rot * camera_y) * flip_x
+    camera_y_rot = (-sin_rot * camera_x + cos_rot * camera_y) * flip_y
 
     if focal_length is None:
-        return theta_x_rot, theta_y_rot, None, None
-    return theta_x_rot, theta_y_rot, focal_length * theta_x_rot, focal_length * theta_y_rot
+        return camera_x_rot, camera_y_rot, None, None
+    return (
+        camera_x_rot,
+        camera_y_rot,
+        focal_length * camera_x_rot,
+        focal_length * camera_y_rot,
+    )
 
 
 def _extract_subarray_geometry(source) -> Dict[int, TelescopeGeometry]:
@@ -2142,7 +2163,16 @@ class EventVisualizer:
                 self._draw_hillas_ellipse(axes[index], hillas_params[tel_id])
             if incident_positions and tel_id in incident_positions:
                 pos = incident_positions[tel_id]
-                axes[index].plot(pos["x_hat"], pos["y_hat"], marker="x", linestyle="None", color="cyan", ms=5, zorder=10000)
+                plot_x, plot_y = _camera_to_plot_xy(pos["x_hat"], pos["y_hat"])
+                axes[index].plot(
+                    plot_x,
+                    plot_y,
+                    marker="x",
+                    linestyle="None",
+                    color="cyan",
+                    ms=5,
+                    zorder=10000,
+                )
 
         for ax in axes[len(tel_ids) + 1 :]:
             ax.axis("off")
@@ -2183,8 +2213,10 @@ class EventVisualizer:
     def _vertices_for(self, tel_geom: TelescopeGeometry) -> np.ndarray:
         key = tel_geom.tel_id
         if key not in self._verts_cache:
-            x = tel_geom.pix_x.astype(float)
-            y = tel_geom.pix_y.astype(float)
+            x, y = _camera_to_plot_xy(
+                tel_geom.pix_x.astype(float),
+                tel_geom.pix_y.astype(float),
+            )
             size = tel_geom.pix_size.astype(float)
             x0 = (x - size / 2)[:, None]
             x1 = (x + size / 2)[:, None]
@@ -2239,8 +2271,8 @@ class EventVisualizer:
         ax.set_xlim(*xlim)
         ax.set_ylim(*ylim)
         ax.set_aspect("equal")
-        ax.set_xlabel("X Position (cm)")
-        ax.set_ylabel("Y Position (cm)")
+        ax.set_xlabel("Azimuth-like camera Y (cm)")
+        ax.set_ylabel("Elevation-like camera X (cm)")
         if self.enable_secondary_axes and not hasattr(ax, "_pylast_secondary_axes_added"):
             secax_x = ax.secondary_xaxis(
                 "top",
@@ -2249,7 +2281,7 @@ class EventVisualizer:
                     lambda deg: np.tan(np.radians(deg)) * tel_geom.focal_length,
                 ),
             )
-            secax_x.set_xlabel("X (degrees)")
+            secax_x.set_xlabel("Azimuth offset (degrees)")
             secax_y = ax.secondary_yaxis(
                 "right",
                 functions=(
@@ -2257,7 +2289,7 @@ class EventVisualizer:
                     lambda deg: np.tan(np.radians(deg)) * tel_geom.focal_length,
                 ),
             )
-            secax_y.set_ylabel("Y (degrees)")
+            secax_y.set_ylabel("Elevation offset (degrees)")
             ax._pylast_secondary_axes_added = True
 
     def _transparent_zero_cmap(self):
@@ -2301,18 +2333,19 @@ class EventVisualizer:
         )
 
     def _draw_hillas_ellipse(self, ax, hillas: HillasParameters):
+        plot_cog_x, plot_cog_y = _camera_to_plot_xy(hillas.cog_x, hillas.cog_y)
         ellipse = Ellipse(
-            xy=(hillas.cog_x, hillas.cog_y),
+            xy=(plot_cog_x, plot_cog_y),
             width=hillas.length,
             height=hillas.width,
-            angle=hillas.psi,
+            angle=90.0 - hillas.psi,
             edgecolor="r",
             facecolor="none",
             lw=2,
             zorder=10000,
         )
         ax.add_patch(ellipse)
-        ax.plot(hillas.cog_x, hillas.cog_y, marker="o", linestyle="None", color="r", ms=3, zorder=10000)
+        ax.plot(plot_cog_x, plot_cog_y, marker="o", linestyle="None", color="r", ms=3, zorder=10000)
         angular_half_len = float(np.tan(np.deg2rad(3.5)) * hillas.focal_length)
         try:
             xlim = ax.get_xlim()
@@ -2322,11 +2355,12 @@ class EventVisualizer:
         except Exception:
             half_len = max(angular_half_len, 8.0 * hillas.length)
         psi = np.deg2rad(hillas.psi)
-        dx = half_len * np.cos(psi)
-        dy = half_len * np.sin(psi)
+        camera_dx = half_len * np.cos(psi)
+        camera_dy = half_len * np.sin(psi)
+        plot_dx, plot_dy = _camera_to_plot_xy(camera_dx, camera_dy)
         ax.plot(
-            [hillas.cog_x - dx, hillas.cog_x + dx],
-            [hillas.cog_y - dy, hillas.cog_y + dy],
+            [plot_cog_x - plot_dx, plot_cog_x + plot_dx],
+            [plot_cog_y - plot_dy, plot_cog_y + plot_dy],
             color="r",
             lw=1.4,
             ls="--",
@@ -2347,9 +2381,10 @@ class EventVisualizer:
             focal_length=focal_length,
         )
         if x_camera is not None and y_camera is not None:
+            plot_x, plot_y = _camera_to_plot_xy(x_camera, y_camera)
             ax.plot(
-                y_camera,
-                x_camera,
+                plot_x,
+                plot_y,
                 marker="x",
                 linestyle="None",
                 color="magenta",
@@ -2378,9 +2413,10 @@ class EventVisualizer:
             focal_length=focal_length,
         )
         if x_camera is not None and y_camera is not None:
+            plot_x, plot_y = _camera_to_plot_xy(x_camera, y_camera)
             ax.plot(
-                y_camera,
-                x_camera,
+                plot_x,
+                plot_y,
                 marker="+",
                 linestyle="None",
                 color="#2166ac",
@@ -2412,13 +2448,13 @@ class EventVisualizer:
 
         e_az, e_el, optical_axis = _camera_basis(tel_az, tel_zenith)
         direction = np.cross(normal, optical_axis)
-        dx_camera = float(direction @ e_az)
-        dy_camera = float(direction @ e_el)
-        norm = float(np.hypot(dx_camera, dy_camera))
+        camera_dx = float(direction @ e_el)
+        camera_dy = float(direction @ e_az)
+        norm = float(np.hypot(camera_dx, camera_dy))
         if not np.isfinite(norm) or norm <= 0.0:
             return
-        dx_camera /= norm
-        dy_camera /= norm
+        camera_dx /= norm
+        camera_dy /= norm
 
         _, _, x_camera, y_camera = incident_point_on_camera(
             source_azimuth_rad=reco_az,
@@ -2433,12 +2469,8 @@ class EventVisualizer:
         xlim = ax.get_xlim()
         ylim = ax.get_ylim()
         half_len = 0.55 * float(np.hypot(xlim[1] - xlim[0], ylim[1] - ylim[0]))
-        # The camera image plotting convention swaps camera x/y, so the line
-        # direction is swapped in the same way as the ideal/reco markers.
-        plot_x = float(y_camera)
-        plot_y = float(x_camera)
-        plot_dx = dy_camera
-        plot_dy = dx_camera
+        plot_x, plot_y = _camera_to_plot_xy(float(x_camera), float(y_camera))
+        plot_dx, plot_dy = _camera_to_plot_xy(camera_dx, camera_dy)
         ax.plot(
             [plot_x - half_len * plot_dx, plot_x + half_len * plot_dx],
             [plot_y - half_len * plot_dy, plot_y + half_len * plot_dy],
