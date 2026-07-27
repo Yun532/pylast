@@ -121,9 +121,10 @@ def plot_event_trigger_timing(
     output_path: str | PathLike[str] | None = None,
     show_lhaaso_background: bool = True,
     annotate: bool = True,
+    wavefront_speed_m_per_ns: float = 0.29974,
     show: bool | None = None,
 ):
-    """Draw raw versus geometrically corrected LACT array trigger timing."""
+    """Draw raw and plot-calculated position-corrected trigger timing."""
 
     if root_file is None and _looks_like_path(event):
         root_file = event
@@ -142,6 +143,7 @@ def plot_event_trigger_timing(
         image_level=image_level,
         show_lhaaso_background=show_lhaaso_background,
         annotate=annotate,
+        wavefront_speed_m_per_ns=wavefront_speed_m_per_ns,
         show=show,
     )
     return {

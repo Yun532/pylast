@@ -1087,13 +1087,17 @@ class EventVisualizer:
         image_level: str = "dl0",
         show_lhaaso_background: bool = True,
         annotate: bool = True,
+        wavefront_speed_m_per_ns: float = 0.29974,
         show: bool = True,
     ):
-        """Plot first-trigger delay and p.e. on the LACT array layout.
+        """Plot raw and position-corrected trigger delays on one array map.
 
         The color scale follows :meth:`plot_event_cores` and encodes total
-        integrated p.e. Relative first-trigger delays are written next to the
-        triggered telescopes. This method requires the LACT ROOT adapter's
+        integrated p.e. Labels show the raw first-trigger delay, the
+        planar-wavefront position delay, and the residual after subtracting
+        that position term. The position correction is calculated here from
+        event truth and telescope geometry; stored simulation corrections are
+        ignored. This method requires the LACT ROOT adapter's
         ``get_trigger_timing`` interface.
         """
 
@@ -1128,6 +1132,9 @@ class EventVisualizer:
         first_span = float(np.ptp(first_times))
 
         data = read_event_data(event, self.tel_geoms, image_level=image_level)
+        if (not np.isfinite(wavefront_speed_m_per_ns) or
+                wavefront_speed_m_per_ns <= 0.0):
+            raise ValueError("wavefront_speed_m_per_ns must be finite and > 0")
         pe = np.asarray(
             [max(0.0, data.image_sum_by_tel.get(telescope_id, 0.0))
              for telescope_id in tel_ids],
@@ -1142,6 +1149,37 @@ class EventVisualizer:
             [self.tel_geoms[telescope_id].pos_y for telescope_id in tel_ids],
             dtype=float,
         )
+        up = np.zeros(len(tel_ids), dtype=float)
+        subarray = getattr(self.source, "subarray", None)
+        tel_positions = getattr(subarray, "tel_positions", {})
+        for index, telescope_id in enumerate(tel_ids):
+            try:
+                value = tel_positions[telescope_id][2]
+                if hasattr(value, "to_value"):
+                    value = value.to_value("m")
+                up[index] = float(value)
+            except (KeyError, IndexError, TypeError, ValueError):
+                up[index] = 0.0
+
+        altitude_rad = np.deg2rad(90.0 - data.zenith_deg)
+        azimuth_rad = np.deg2rad(data.azimuth_deg)
+        source_enu = np.asarray(
+            [
+                np.cos(altitude_rad) * np.sin(azimuth_rad),
+                np.cos(altitude_rad) * np.cos(azimuth_rad),
+                np.sin(altitude_rad),
+            ],
+            dtype=float,
+        )
+        positions_enu = np.column_stack([east, north, up])
+        # A telescope displaced toward the source is reached earlier than the
+        # array origin, hence the minus sign. The absolute zero is arbitrary;
+        # only differences between telescopes are observable.
+        position_times = -(positions_enu @ source_enu) / wavefront_speed_m_per_ns
+        position_relative = position_times - float(np.min(position_times))
+        corrected_times = first_times - position_times
+        corrected_relative = corrected_times - float(np.min(corrected_times))
+        corrected_span = float(np.ptp(corrected_times))
         all_tel_ids = sorted(self.tel_geoms)
         all_east = np.asarray(
             [self.tel_geoms[telescope_id].pos_x for telescope_id in all_tel_ids],
@@ -1156,9 +1194,33 @@ class EventVisualizer:
         )
         array_pad = 0.18 * array_span
 
-        panels = [
-            ("First camera threshold crossing", first_relative, first_span),
+        label_positions = {}
+        east_midpoint = float(np.median(east))
+        label_groups = [
+            (
+                [index for index, value in enumerate(east)
+                 if value <= east_midpoint],
+                float(np.min(all_east)) + 0.035 * array_span,
+                "left",
+            ),
+            (
+                [index for index, value in enumerate(east)
+                 if value > east_midpoint],
+                float(np.max(all_east)) - 0.035 * array_span,
+                "right",
+            ),
         ]
+        label_y_top = float(np.max(all_north)) - 0.07 * array_span
+        label_y_bottom = float(np.min(all_north)) + 0.07 * array_span
+        for indices, label_x, horizontal_alignment in label_groups:
+            ordered = sorted(indices, key=lambda index: north[index], reverse=True)
+            label_y = np.linspace(label_y_top, label_y_bottom, max(len(ordered), 1))
+            for slot, index in enumerate(ordered):
+                label_positions[index] = (
+                    label_x, float(label_y[slot]), horizontal_alignment
+                )
+
+        panels = [first_relative]
         fig, axes = plt.subplots(
             1, len(panels),
             figsize=(7.2 * len(panels), 7.0),
@@ -1167,7 +1229,7 @@ class EventVisualizer:
         )
         axes = np.atleast_1d(axes)
         scatters = []
-        for ax, (title, relative_times, span_ns) in zip(axes, panels):
+        for ax, relative_times in zip(axes, panels):
             background = {}
             if show_lhaaso_background:
                 background = draw_lhaaso_background(
@@ -1228,16 +1290,24 @@ class EventVisualizer:
                     label = (
                         f"T{telescope_id + 1}\n"
                         f"{pe[index]:.0f} pe\n"
-                        f"Δt {relative_times[index]:.1f} ns"
+                        f"raw Δt {relative_times[index]:.1f} ns\n"
+                        f"pos Δt {position_relative[index]:.1f} ns\n"
+                        f"corr Δt {corrected_relative[index]:.1f} ns"
                     )
+                    label_x, label_y, horizontal_alignment = label_positions[index]
                     ax.annotate(
                         label,
                         xy=(east[index], north[index]),
-                        xytext=(4.0, 4.0), textcoords="offset points",
-                        ha="left", va="bottom", fontsize=6.6, color="0.10",
+                        xytext=(label_x, label_y), textcoords="data",
+                        ha=horizontal_alignment, va="center",
+                        fontsize=6.2, color="0.10",
                         bbox=dict(
                             boxstyle="round,pad=0.18", facecolor="white",
                             edgecolor="none", alpha=0.76,
+                        ),
+                        arrowprops=dict(
+                            arrowstyle="-", color="0.30", linewidth=0.55,
+                            alpha=0.75,
                         ),
                         zorder=7,
                     )
@@ -1270,7 +1340,10 @@ class EventVisualizer:
                 float(np.min(limit_north)) - array_pad,
                 float(np.max(limit_north)) + array_pad,
             )
-            ax.set_title(f"{title}\nspan = {span_ns:.2f} ns")
+            ax.set_title(
+                f"LACT trigger timing event_id={data.event_id} | "
+                f"raw {first_span:.1f} ns → corrected {corrected_span:.1f} ns"
+            )
             ax.set_xlabel("East (m)")
             ax.grid(True, alpha=0.22, linewidth=0.55)
             ax.tick_params(direction="in", top=True, right=True)
@@ -1296,11 +1369,6 @@ class EventVisualizer:
             colorbar.locator = MaxNLocator(nbins=4)
             colorbar.formatter = FormatStrFormatter("%.3g")
             colorbar.update_ticks()
-        fig.suptitle(
-            f"LACT array trigger timing event_id={data.event_id}\n"
-            "color encodes p.e.; labels show delay from the first trigger",
-            fontsize=14,
-        )
         self._finish(fig, output_path, show)
         return fig, axes
 
