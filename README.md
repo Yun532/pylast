@@ -11,5 +11,10 @@ pip install . --config-settings=cmake.args="-DWITH_EXT_REC=ON"
 LightGBM Library: Used to load and use the `lightgbm` model
 Set the LIGHTGBM_LIBRARY to path of liblightgbm.so
 
+## Coordinates
+
+The code-level coordinate audit, including the LACT ROOT camera mapping, is in
+[`docs/coordinate_code_audit_zh.md`](docs/coordinate_code_audit_zh.md).
+
 
 

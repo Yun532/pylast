@@ -193,8 +193,8 @@ int main()
                                    .camera_description.camera_geometry;
         require(std::abs(geometry.pix_x[0] - 0.04) < 1.0e-12,
                 "LACT v must map to negative pylast pix_x");
-        require(std::abs(geometry.pix_y[0] - 0.03) < 1.0e-12,
-                "LACT u must map to pylast pix_y");
+        require(std::abs(geometry.pix_y[0] + 0.03) < 1.0e-12,
+                "LACT u must map to negative pylast pix_y");
 
         LactEventSource filtered_source(complete.string(), -1, {1});
         require(filtered_source.event_count() == 0,
