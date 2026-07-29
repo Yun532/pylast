@@ -78,6 +78,18 @@ TEST_CASE("TEST_TELESCOPE_FRAME_TRANS")
         CHECK(camera_point->x() == doctest::Approx(std::tan(10 * M_PI / 180)));
         CHECK(camera_point->y() == doctest::Approx(0));
     }
+    SUBCASE("AZIMUTH_INCREASES_FROM_NORTH_TOWARD_EAST")
+    {
+        const double altitude = 30 * M_PI / 180;
+        auto telescope_frame = TelescopeFrame(0, altitude);
+        auto east_source = SkyDirection(AltAzFrame(), 1 * M_PI / 180, altitude);
+        auto west_source = SkyDirection(AltAzFrame(), -1 * M_PI / 180, altitude);
+        auto east_camera = east_source.transform_to(telescope_frame);
+        auto west_camera = west_source.transform_to(telescope_frame);
+
+        CHECK(east_camera->y() > 0);
+        CHECK(west_camera->y() < 0);
+    }
 }
 TEST_CASE("TEST_TELESCOPE_FRAME_TRANS_TO_SKY")
 {

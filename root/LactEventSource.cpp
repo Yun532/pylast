@@ -252,12 +252,14 @@ void LactEventSource::load_telescopes()
         //   u=x_m is horizontal (azimuth-like),
         //   v=y_m is sky-up on the hardware plane.
         // Pylast uses pix_x for elevation-like source offsets and pix_y for
-        // azimuth-like source offsets.  Reflection reverses the elevation
-        // image coordinate, so adapt the two conventions once at this input
-        // boundary.  Reconstruction and plotting consume pix_x/pix_y without
-        // any LACT-specific correction after this point.
+        // azimuth-like source offsets.  LACT output +u points East on the
+        // physical focal plane, but an East-side sky source is reflected to
+        // negative u.  Likewise an upper sky source is reflected to negative
+        // v.  Convert the hardware image to sky-offset coordinates exactly
+        // once at this input boundary.  Reconstruction and plotting consume
+        // pix_x/pix_y without any later LACT-specific correction.
         pix_x[static_cast<int>(i)] = -pix.y_m;
-        pix_y[static_cast<int>(i)] = pix.x_m;
+        pix_y[static_cast<int>(i)] = -pix.x_m;
         pix_area_vec[static_cast<int>(i)] = pixel_area(pix.size_m, pix.shape_code);
         pix_type[static_cast<int>(i)] = lact_shape_to_pylast(pix.shape_code);
     }
