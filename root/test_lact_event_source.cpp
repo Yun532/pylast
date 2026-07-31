@@ -95,7 +95,7 @@ void writeFixture(const std::filesystem::path& path, WaveformCase waveform_case)
     bool triggered = true;
     int n_pixels_camera = 1;
     std::vector<int> observation_pixels = {1};
-    std::vector<float> image_pe = {5.0f};
+    std::vector<float> image_pe = {4.25f};
     std::vector<float> image_cherenkov_pe = {5.0f};
     std::vector<float> image_time_peak_ns = {0.5f};
     TTree observations("observations", "observations");
@@ -204,6 +204,11 @@ int main()
         auto no_waveform_event = no_waveform_source.get_event(0);
         require(no_waveform_event.dl0.has_value(),
                 "file without waveforms must use integrated images");
+        require(std::abs(no_waveform_event.dl0->tels.at(0)->image[0] - 4.25) <
+                    1.0e-12,
+                "image_pe must map to no-waveform DL0 image");
+        require(no_waveform_event.simulation->tels.at(0)->true_image[0] == 5,
+                "image_cherenkov_pe must map to simulation true_image");
 
         requireThrows([&]() { LactEventSource source(missing.string()); },
                       "missing waveform");

@@ -887,7 +887,10 @@ def plot_event_quicklook(
         Maximum events exposed by the source. ``-1`` means all events.
     image_level:
         pylast image level for plotting. For LACT ROOT files, ``dl0`` is the
-        integrated p.e. image derived from ``observations.image_pe``.
+        final integrated p.e. image derived from ``observations.image_pe``.
+        With no waveform tree this includes upstream NSB and SiPM saturation
+        when enabled in LACT_sim. ``simulation`` instead selects the
+        Cherenkov-only, pre-saturation ``observations.image_cherenkov_pe``.
     plot_gathered, plot_telescopes, plot_event:
         Select which standard event plots to write.
     include_non_triggered:

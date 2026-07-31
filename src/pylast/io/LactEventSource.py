@@ -40,9 +40,11 @@ class LactEventSource:
     """Python adapter around the native LACT ROOT event source.
 
     Exposes a uniform ``get_triggered_tels`` helper. LACT ROOT readout images
-    are detector-level data, so the native adapter does not need to put them in
-    ``event.simulation`` just to carry trigger state. The observations tree is
-    used as the source-level trigger table.
+    are detector-level data. With no waveform tree,
+    ``observations.image_pe`` is exposed as ``event.dl0``; the independent
+    Cherenkov-only, pre-saturation ``observations.image_cherenkov_pe`` branch is
+    exposed as ``event.simulation.tels[*].true_image``. The observations tree
+    is also used as the source-level trigger table.
     """
 
     def __init__(self, *args, **kwargs):

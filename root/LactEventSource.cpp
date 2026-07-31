@@ -533,6 +533,9 @@ int LactEventSource::pixel_index(int pixel_id) const
 
 Eigen::VectorXd LactEventSource::dense_image(const ObservationRow& obs) const
 {
+    // LACT_sim image_pe is the final integrated detector image.  In the
+    // no-waveform path it is exposed as DL0, including upstream NSB and SiPM
+    // saturation when those effects were enabled in LACT_sim.
     Eigen::VectorXd image = Eigen::VectorXd::Zero(camera_pixels.size());
     const auto n = std::min(obs.pixel_id.size(), obs.image_pe.size());
     for (std::size_t i = 0; i < n; ++i) {
@@ -546,6 +549,8 @@ Eigen::VectorXd LactEventSource::dense_image(const ObservationRow& obs) const
 
 Eigen::VectorXd LactEventSource::dense_cherenkov_image(const ObservationRow& obs) const
 {
+    // image_cherenkov_pe is pre-saturation Cherenkov-only truth.  It excludes
+    // NSB and is mapped to event.simulation.tels[tel_id].true_image below.
     Eigen::VectorXd image = Eigen::VectorXd::Zero(camera_pixels.size());
     const auto n = std::min(obs.pixel_id.size(), obs.image_cherenkov_pe.size());
     for (std::size_t i = 0; i < n; ++i) {
