@@ -145,6 +145,14 @@ void LocalPeakExtractor::configure(const json& config)
 }
 void LocalPeakExtractor::correction(Eigen::VectorXd& charge, const Eigen::VectorXi& gain_selection, const CameraReadout& readout, double sampling_rate_ghz)
 {
+    // LACT ROOT p.e. proxy waveforms have no analog reference pulse shape.
+    // Their samples are already expressed in fired p.e., so a pulse-shape
+    // containment correction is neither available nor appropriate.
+    if (readout.reference_pulse_shape.rows() == 0 ||
+        readout.reference_pulse_shape.cols() == 0 ||
+        readout.reference_pulse_sample_width <= 0.0) {
+        return;
+    }
     if(!this->cached_correction.has_value())
     {
         Eigen::VectorXd correction = this->compute_integration_correction(

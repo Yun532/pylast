@@ -47,6 +47,8 @@ set(BASIC_EVENT_SOURCE_FILES
     )
 add_library(basic_event SHARED ${BASIC_EVENT_SOURCE_FILES})
 target_include_directories(basic_event PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/bernlohr/LACT_hessioxxx/include)
+find_package(Threads REQUIRED)
+target_link_libraries(basic_event PUBLIC Threads::Threads)
 
 set(SIMTEL_SOURCE_FILES
     SimtelEventSource.cpp
@@ -100,4 +102,5 @@ target_link_libraries(reconstructor PUBLIC basic_event query)
 
 
 add_executable(debug debug.cpp LoggerInitialize.cpp)
-target_link_libraries(debug PRIVATE simtel_event image_processor calibrator reconstructor)
+target_link_libraries(debug PRIVATE simtel_event image_processor calibrator
+                                    reconstructor)

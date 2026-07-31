@@ -1,4 +1,5 @@
 #include "LactEventSource.hh"
+#include "Calibration.hh"
 
 #include "TFile.h"
 #include "TTree.h"
@@ -119,7 +120,7 @@ void writeFixture(const std::filesystem::path& path, WaveformCase waveform_case)
         event_id = 100;
         std::vector<int> waveform_pixels = {1};
         std::vector<unsigned short> time_bin = {0};
-        std::vector<float> pe = {5.0f};
+        std::vector<float> pe = {4.25f};
         TTree waveforms("waveforms", "waveforms");
         waveforms.Branch("event_id", &event_id);
         waveforms.Branch("telescope_id", &telescope_id);
@@ -195,6 +196,12 @@ int main()
                 "LACT v must map to negative pylast pix_x");
         require(std::abs(geometry.pix_y[0] + 0.03) < 1.0e-12,
                 "LACT u must map to negative pylast pix_y");
+        Calibrator calibrator(*complete_source.subarray);
+        calibrator(first);
+        require(first.dl0.has_value(),
+                "default calibrator must accept LACT p.e. proxy waveforms");
+        require(std::abs(first.dl0->tels.at(0)->image[0] - 4.25) < 1.0e-12,
+                "LACT proxy waveform must not receive pulse-shape correction");
 
         LactEventSource filtered_source(complete.string(), -1, {1});
         require(filtered_source.event_count() == 0,

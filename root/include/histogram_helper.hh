@@ -10,6 +10,7 @@
  */
 #pragma once
 #include "TH2D.h"
+#include <cmath>
 
 struct InterpResult {
   double value;
@@ -35,7 +36,7 @@ InterpResult interpolate_histogram(TH2D *histogram, double x, double y,
 
   // Check whether the bin is filled by default value (Not valid data)
   double bin_value = histogram->GetBinContent(bin_x, bin_y);
-  if (fabs(bin_value - fill_value) < 1e-6) {
+  if (std::fabs(bin_value - fill_value) < 1e-6) {
     result.inside = false;
     result.bilinear = false;
     return result;
