@@ -4,7 +4,7 @@
 
 ## 1. 探测器处理顺序
 
-当前无波形积分模式的主链为：
+当前电子学主链为：
 
 ```text
 Cherenkov p.e. + NSB p.e.
@@ -20,9 +20,16 @@ SiPM 微单元饱和
           |
           v
 ROOT observations.image_pe
-          |
-          v
-pyLAST event.dl0.tels[tel_id].image
+          |                         |
+          | 无波形                  | 实测 mV 波形
+          v                         v
+pyLAST event.dl0              ROOT waveforms.sample_value
+                                    |
+                                    v
+                              pyLAST R1 (mV)
+                                    |
+                                    v
+                              Calibrator -> DL0 (PE)
 ```
 
 Cherenkov 真值同时走一条独立的诊断路径：
@@ -31,7 +38,7 @@ Cherenkov 真值同时走一条独立的诊断路径：
 饱和前 Cherenkov p.e.（不含 NSB）
           |
           v
-ROOT observations.image_cherenkov_pe
+ROOT observations.image_primary_cherenkov_pe
           |
           v
 pyLAST event.simulation.tels[tel_id].true_image
@@ -46,19 +53,20 @@ NSB。
 | 文件字段 | 含义 | pyLAST 对应 | 推荐用途 |
 | --- | --- | --- | --- |
 | ROOT `observations.image_pe` | Cherenkov 与 NSB 合并后，再经过 SiPM 饱和的最终积分图像 | 无波形时为 `event.dl0.tels[tel_id].image` | 默认相机图、清洗和重建输入 |
-| ROOT `observations.image_cherenkov_pe` | 饱和前的 Cherenkov 真值，不含 NSB | `event.simulation.tels[tel_id].true_image` | 真值诊断；读取时会四舍五入为整数 p.e. |
-| ROOT `observations.image_nsb_pe` | 可选的饱和前 NSB 分量 | 当前不映射到标准 pyLAST 层级 | NSB 分量诊断 |
-| ROOT `waveforms.pe` | SiPM 微单元饱和后的 fired-p.e. 时间序列 | 有波形时为 `event.r1.tels[tel_id].waveform` | 触发、时间分析和后续 DL0 提取 |
-| ROOT `waveforms.primary_pe` | 可选的饱和前 Cherenkov+NSB 时间序列 | 当前不映射到标准 pyLAST 层级 | 波形饱和损失诊断 |
+| ROOT `observations.image_primary_cherenkov_pe` | PDE 后、饱和前的 Cherenkov 真值，不含 NSB | `event.simulation.tels[tel_id].true_image` | 真值诊断；旧文件的 `image_cherenkov_pe` 仍可读取 |
+| ROOT `observations.image_primary_nsb_pe` | 饱和前 NSB 分量 | 当前不映射到标准 pyLAST 层级 | NSB 分量诊断 |
+| ROOT `observations.image_fired_cherenkov_pe` | 微单元饱和后的 Cherenkov 整数 fired PE | 当前不映射到标准 pyLAST 层级 | 饱和诊断 |
+| ROOT `waveforms.sample_value` | 4 ns 平均电压，单位由 `waveform_config.sample_unit` 指明 | `event.r1.tels[tel_id].waveform` | 触发、时间分析和后续 DL0 提取 |
+| ROOT `fired_pe_hits.charge_factor` | 每次雪崩抽到的实测相对电荷 | 当前不映射到标准 pyLAST 层级 | 波形电荷闭合诊断 |
 | HDF5 `/images/dense/pe` | 经过 SiPM 饱和的最终积分图像 | `LactEventSource` 不直接读取 HDF5 | HDF5 直接诊断 |
-| HDF5 `/images/dense/primary_pe` | 饱和前的 Cherenkov+NSB 总输入；只在启用饱和时写出 | `LactEventSource` 不直接读取 HDF5 | 饱和损失诊断 |
-| HDF5 `/waveforms/pe`、`primary_pe` | 饱和后的 fired-p.e. 波形与饱和前总波形 | `LactEventSource` 不直接读取 HDF5 | 波形积分与触发复核 |
-| HDF5 `/images/dense/cherenkov_pe`、`nsb_pe` | 可选的饱和前分量 | `LactEventSource` 不直接读取 HDF5 | 分量诊断 |
+| HDF5 `/images/dense/primary_cherenkov_pe`、`primary_nsb_pe` | 饱和前分量 | `LactEventSource` 不直接读取 HDF5 | 分量诊断 |
+| HDF5 `/images/dense/fired_cherenkov_pe`、`fired_nsb_pe` | 饱和后分量 | `LactEventSource` 不直接读取 HDF5 | 饱和诊断 |
+| HDF5 `/waveforms/samples.sample_value` | 与 ROOT/CSV 相同的稀疏 4 ns mV 样本 | `LactEventSource` 不直接读取 HDF5 | 波形积分与格式复核 |
 
 这里的“真值”必须区分：
 
-- ROOT `image_cherenkov_pe` 是 **Cherenkov-only truth**；
-- HDF5 `primary_pe` 是 **Cherenkov+NSB 的饱和前总输入**。
+- ROOT `image_primary_cherenkov_pe` 是 **Cherenkov-only truth**；
+- HDF5 的 primary Cherenkov 与 primary NSB 分量之和是 **饱和前总输入**。
 
 两者在启用 NSB 时不是同一个量。
 
@@ -77,29 +85,32 @@ image = event.dl0.tels[tel_id].image
 truth = event.simulation.tels[tel_id].true_image
 ```
 
-当文件包含 `waveforms` 树时，读取器把饱和后的 `waveforms.pe` 建立为 R1；
-如果不运行 `Calibrator`，DL0 不存在。LACT_sim 保证在浮点精度内：
+当文件包含 `waveforms` 树时，读取器把 `waveforms.sample_value` 原样建立为 R1；
+实测模式下单位为 mV。如果不运行 `Calibrator`，DL0 不存在。完整波形积分的
+mV→PE 定标是：
 
 ```text
-observations.image_pe[pixel] == sum_t waveforms.pe[pixel, t]
+PE = sum_t(sample_value_mV) * sample_width_ns / single_pe_area_mv_ns
 ```
 
 要让 DL0 严格对应完整的饱和后积分图像，应使用全波形提取器：
 
 ```python
+import json
 from pylast.calib import Calibrator
 
 calibrator = Calibrator(
     source.subarray,
-    {"image_extractor_type": "FullWaveFormExtractor"},
+    json.dumps({"image_extractor_type": "FullWaveFormExtractor"}),
 )
 calibrator(event)
 image = event.dl0.tels[tel_id].image
 ```
 
-默认 `LocalPeakExtractor` 只积分峰附近 7 个时间 bin，因此可能小于完整
-`image_pe`。LACT 的 p.e. proxy 没有模拟参考脉冲形状，pyLAST 会跳过
-pulse-containment correction，而不会再对这些 fired-p.e. 样本做额外增益修正。
+`FullWaveFormExtractor` 先积分样本，再由原有 `Calibrator` 根据 CameraReadout 中的
+采样宽度和 `single_pe_area_mv_ns` 转为 PE。`LocalPeakExtractor` 默认积分峰附近
+7 个 time bin；当 `apply_correction=true` 时，它使用 ROOT 内文件级实测参考脉冲
+计算窗口包含比例并修正尾部。旧的 PE-proxy 文件保持比例 1，不做 mV 定标。
 
 ## 4. 画图层级
 

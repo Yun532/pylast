@@ -1,6 +1,7 @@
 #include "Calibration.hh"
 #include "Configurable.hh"
 #include "DL0Event.hh"
+#include <cmath>
 #include <stdexcept>
 
 Eigen::VectorXi select_gain_channel_by_threshold(const std::array<Eigen::Matrix<uint16_t, -1, -1, Eigen::RowMajor>, 2>& waveform, const double threshold)
@@ -68,6 +69,35 @@ void Calibrator::operator()(ArrayEvent& event)
     for(const auto& [tel_id, r1_camera]: event.r1->tels)
     {
         auto [charge, peak_time] = (*image_extractor)(r1_camera->waveform, r1_camera->gain_selection, tel_id);
+        charge *= waveform_sum_to_pe_scale(tel_id);
         event.dl0->add_tel(tel_id, DL0Camera{.image = std::move(charge), .peak_time=std::move(peak_time)});
     }
+}
+
+double Calibrator::waveform_sum_to_pe_scale(int tel_id) const
+{
+    const auto& readout =
+        subarray.tels.at(tel_id).camera_description.camera_readout;
+    const auto& unit = readout.waveform_sample_unit;
+    if (unit.empty() || unit == "pe" || unit == "pe_per_sample" ||
+        unit == "fired_pe_per_sample" || unit == "pe_charge_per_sample") {
+        return 1.0;
+    }
+    if (unit != "mV") {
+        throw std::runtime_error(
+            "Calibrator does not know how to convert waveform sample unit '" +
+            unit + "' to p.e.");
+    }
+    if (!std::isfinite(readout.sampling_rate) ||
+        readout.sampling_rate <= 0.0) {
+        throw std::runtime_error(
+            "mV waveform calibration requires a positive sampling rate");
+    }
+    if (!std::isfinite(readout.single_pe_area_mv_ns) ||
+        readout.single_pe_area_mv_ns <= 0.0) {
+        throw std::runtime_error(
+            "mV waveform calibration requires single_pe_area_mv_ns > 0");
+    }
+    const double sample_width_ns = 1.0 / readout.sampling_rate;
+    return sample_width_ns / readout.single_pe_area_mv_ns;
 }

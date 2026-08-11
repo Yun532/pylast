@@ -110,14 +110,19 @@ private:
         int n_time_bins = 0;
         std::vector<int> pixel_id;
         std::vector<unsigned short> time_bin;
-        std::vector<float> pe;
+        std::vector<float> sample_value;
     };
 
     struct WaveformConfig {
         bool available = false;
         int n_time_bins = 1;
         double time_bin_width_ns = 1.0;
+        std::string sample_unit;
+        double single_pe_area_mv_ns = 0.0;
+        std::string template_time_reference;
         std::vector<double> time_centers_ns;
+        std::vector<double> reference_pulse_time_ns;
+        std::vector<double> reference_pulse_amplitude;
     };
 
     void load_schema();

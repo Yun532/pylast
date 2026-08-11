@@ -14,6 +14,7 @@
 #include <utility>
 #include "SubarrayDescription.hh"
 #include "optional"
+#include <unordered_map>
 #include "Configurable.hh"
 /**
  * @brief Extract the waveform around the peak
@@ -37,11 +38,14 @@ class ImageExtractor
        virtual std::pair<Eigen::VectorXd, Eigen::VectorXd> operator()(const Eigen::Matrix<double, -1, -1, Eigen::RowMajor>& waveform, const Eigen::VectorXi& gain_selection, int tel_id) = 0;
        Eigen::VectorXi get_peak_index(const Eigen::Matrix<double, -1, -1, Eigen::RowMajor>& waveform);
        Eigen::VectorXd compute_integration_correction(const Eigen::MatrixXd& reference_pulse, double reference_pulse_sample_width_ns, double sample_width_ns, int window_width, int window_shift);
-       Eigen::VectorXd get_cached_integration_correction() const { return *cached_correction;}
+       Eigen::VectorXd get_cached_integration_correction(int tel_id) const
+       {
+           return cached_correction.at(tel_id);
+       }
     protected:
         const SubarrayDescription& subarray;
         std::unordered_map<int, double> sampling_rate_ghz;
-        std::optional<Eigen::VectorXd> cached_correction;
+        std::unordered_map<int, Eigen::VectorXd> cached_correction;
 
 
 };
@@ -79,13 +83,18 @@ class LocalPeakExtractor: public ImageExtractor, public Configurable
         const auto& readout = subarray.tels.at(tel_id).camera_description.camera_readout;
         if (this->apply_correction)
         {
-            this->correction(charge, gain_selection, readout, sampling_rate_ghz);
+            this->correction(charge, gain_selection, readout,
+                             sampling_rate_ghz, tel_id);
         }
         return std::make_pair(charge, peak_time);
     }
 
     private:
-    void correction(Eigen::VectorXd& charge, const Eigen::VectorXi& gain_selection, const CameraReadout& readout, double sampling_rate_ghz);
+    void correction(Eigen::VectorXd& charge,
+                    const Eigen::VectorXi& gain_selection,
+                    const CameraReadout& readout,
+                    double sampling_rate_ghz,
+                    int tel_id);
     int window_width;
     int window_shift;
     bool apply_correction;

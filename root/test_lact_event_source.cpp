@@ -18,6 +18,8 @@ enum class WaveformCase {
     NoTree,
     MissingTriggered,
     MismatchedArrays,
+    MeasuredMv,
+    MeasuredMvMissingCalibration,
 };
 
 void writeFixture(const std::filesystem::path& path, WaveformCase waveform_case)
@@ -82,13 +84,36 @@ void writeFixture(const std::filesystem::path& path, WaveformCase waveform_case)
     telescopes.Fill();
     telescopes.Write();
 
-    int n_time_bins = 2;
-    double time_bin_width_ns = 1.0;
-    std::vector<double> time_centers_ns = {0.5, 1.5};
+    const bool measured_mv =
+        waveform_case == WaveformCase::MeasuredMv ||
+        waveform_case == WaveformCase::MeasuredMvMissingCalibration;
+    int n_time_bins = measured_mv ? 6 : 2;
+    double time_bin_width_ns = measured_mv ? 2.0 : 1.0;
+    std::vector<double> time_centers_ns = measured_mv
+        ? std::vector<double>{1.0, 3.0, 5.0, 7.0, 9.0, 11.0}
+        : std::vector<double>{0.5, 1.5};
+    std::string sample_unit = measured_mv ? "mV" : "";
+    double single_pe_area_mv_ns =
+        waveform_case == WaveformCase::MeasuredMv ? 16.0 : 0.0;
+    std::string template_time_reference = measured_mv ? "peak" : "";
+    std::vector<double> reference_pulse_time_ns = measured_mv
+        ? std::vector<double>{-4.0, -2.0, 0.0, 2.0, 4.0, 6.0}
+        : std::vector<double>{};
+    std::vector<double> reference_pulse_amplitude = measured_mv
+        ? std::vector<double>{0.0, 1.0, 4.0, 2.0, 1.0, 0.0}
+        : std::vector<double>{};
     TTree waveform_config("waveform_config", "waveform_config");
     waveform_config.Branch("n_time_bins", &n_time_bins);
     waveform_config.Branch("time_bin_width_ns", &time_bin_width_ns);
     waveform_config.Branch("time_centers_ns", &time_centers_ns);
+    waveform_config.Branch("sample_unit", &sample_unit);
+    waveform_config.Branch("single_pe_area_mv_ns", &single_pe_area_mv_ns);
+    waveform_config.Branch("template_time_reference",
+                           &template_time_reference);
+    waveform_config.Branch("reference_pulse_time_ns",
+                           &reference_pulse_time_ns);
+    waveform_config.Branch("reference_pulse_amplitude",
+                           &reference_pulse_amplitude);
     waveform_config.Fill();
     waveform_config.Write();
 
@@ -118,9 +143,15 @@ void writeFixture(const std::filesystem::path& path, WaveformCase waveform_case)
 
     if (waveform_case != WaveformCase::NoTree) {
         event_id = 100;
-        std::vector<int> waveform_pixels = {1};
-        std::vector<unsigned short> time_bin = {0};
-        std::vector<float> pe = {4.25f};
+        std::vector<int> waveform_pixels = measured_mv
+            ? std::vector<int>{1, 1, 1, 1, 1, 1}
+            : std::vector<int>{1};
+        std::vector<unsigned short> time_bin = measured_mv
+            ? std::vector<unsigned short>{0, 1, 2, 3, 4, 5}
+            : std::vector<unsigned short>{0};
+        std::vector<float> values = measured_mv
+            ? std::vector<float>{0.0f, 1.0f, 4.0f, 2.0f, 1.0f, 0.0f}
+            : std::vector<float>{4.25f};
         TTree waveforms("waveforms", "waveforms");
         waveforms.Branch("event_id", &event_id);
         waveforms.Branch("telescope_id", &telescope_id);
@@ -128,8 +159,8 @@ void writeFixture(const std::filesystem::path& path, WaveformCase waveform_case)
         waveforms.Branch("n_time_bins", &n_time_bins);
         waveforms.Branch("pixel_id", &waveform_pixels);
         waveforms.Branch("time_bin", &time_bin);
-        waveforms.Branch("pe", &pe);
-        if (waveform_case == WaveformCase::Complete) {
+        waveforms.Branch(measured_mv ? "sample_value" : "pe", &values);
+        if (waveform_case == WaveformCase::Complete || measured_mv) {
             waveforms.Fill();
         } else if (waveform_case == WaveformCase::MismatchedArrays) {
             time_bin.clear();
@@ -170,12 +201,18 @@ int main()
     const auto no_waveforms = base / "pylast_lact_no_waveforms.root";
     const auto missing = base / "pylast_lact_missing_waveform.root";
     const auto mismatched = base / "pylast_lact_mismatched_waveform.root";
+    const auto measured = base / "pylast_lact_measured_mv.root";
+    const auto missing_calibration =
+        base / "pylast_lact_measured_mv_missing_calibration.root";
 
     try {
         writeFixture(complete, WaveformCase::Complete);
         writeFixture(no_waveforms, WaveformCase::NoTree);
         writeFixture(missing, WaveformCase::MissingTriggered);
         writeFixture(mismatched, WaveformCase::MismatchedArrays);
+        writeFixture(measured, WaveformCase::MeasuredMv);
+        writeFixture(missing_calibration,
+                     WaveformCase::MeasuredMvMissingCalibration);
 
         LactEventSource complete_source(complete.string());
         require(complete_source.event_count() == 2, "complete fixture event count");
@@ -221,6 +258,43 @@ int main()
                       "missing waveform");
         requireThrows([&]() { LactEventSource source(mismatched.string()); },
                       "inconsistent LACT ROOT waveform arrays");
+
+        LactEventSource measured_source(measured.string());
+        const auto& readout = measured_source.subarray->tels.at(0)
+                                  .camera_description.camera_readout;
+        require(readout.waveform_sample_unit == "mV",
+                "measured waveform unit must reach CameraReadout");
+        require(std::abs(readout.single_pe_area_mv_ns - 16.0) < 1.0e-12,
+                "single-p.e. area must reach CameraReadout");
+        require(readout.reference_pulse_shape.rows() == 1 &&
+                    readout.reference_pulse_shape.cols() == 6,
+                "measured reference pulse must reach CameraReadout");
+
+        auto measured_full_event = measured_source.get_event(0);
+        Calibrator full_calibrator(
+            *measured_source.subarray,
+            std::string(
+                R"({"image_extractor_type":"FullWaveFormExtractor"})"));
+        full_calibrator(measured_full_event);
+        require(std::abs(
+                    measured_full_event.dl0->tels.at(0)->image[0] - 1.0) <
+                    1.0e-12,
+                "full mV waveform integration must close to one p.e.");
+
+        auto measured_local_event = measured_source.get_event(0);
+        Calibrator local_calibrator(
+            *measured_source.subarray,
+            std::string(
+                R"json({"image_extractor_type":"LocalPeakExtractor","LocalPeakExtractor":{"window_width":3,"window_shift":1,"apply_correction":true}})json"));
+        local_calibrator(measured_local_event);
+        require(std::abs(
+                    measured_local_event.dl0->tels.at(0)->image[0] - 1.0) <
+                    1.0e-12,
+                "local mV integration and pulse-tail correction must close");
+
+        requireThrows(
+            [&]() { LactEventSource source(missing_calibration.string()); },
+            "single_pe_area_mv_ns");
     } catch (const std::exception& error) {
         std::cerr << error.what() << '\n';
         return 1;
@@ -230,5 +304,7 @@ int main()
     std::filesystem::remove(no_waveforms);
     std::filesystem::remove(missing);
     std::filesystem::remove(mismatched);
+    std::filesystem::remove(measured);
+    std::filesystem::remove(missing_calibration);
     return 0;
 }

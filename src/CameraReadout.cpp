@@ -10,5 +10,8 @@ const string CameraReadout::print() const
     "    n_channels: {}\n"
     "    n_pixels: {}\n"
     "    n_samples: {}\n"
-    ")", camera_name, sampling_rate, reference_pulse_sample_width, n_channels, n_pixels, n_samples);
+    "    waveform_sample_unit: {}\n"
+    "    single_pe_area_mv_ns: {:.6f}\n"
+    ")", camera_name, sampling_rate, reference_pulse_sample_width, n_channels,
+    n_pixels, n_samples, waveform_sample_unit, single_pe_area_mv_ns);
 }

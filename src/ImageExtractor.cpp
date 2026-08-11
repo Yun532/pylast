@@ -1,5 +1,6 @@
 #include "ImageExtractor.hh"
 #include <iostream>
+#include <stdexcept>
 ImageExtractor::ImageExtractor(const SubarrayDescription& subarray):
     subarray(subarray)
 {
@@ -143,7 +144,11 @@ void LocalPeakExtractor::configure(const json& config)
         throw std::runtime_error("Error configuring LocalPeakExtractor: " + std::string(e.what()));
     }
 }
-void LocalPeakExtractor::correction(Eigen::VectorXd& charge, const Eigen::VectorXi& gain_selection, const CameraReadout& readout, double sampling_rate_ghz)
+void LocalPeakExtractor::correction(Eigen::VectorXd& charge,
+                                    const Eigen::VectorXi& gain_selection,
+                                    const CameraReadout& readout,
+                                    double sampling_rate_ghz,
+                                    int tel_id)
 {
     // LACT ROOT p.e. proxy waveforms have no analog reference pulse shape.
     // Their samples are already expressed in fired p.e., so a pulse-shape
@@ -153,7 +158,8 @@ void LocalPeakExtractor::correction(Eigen::VectorXd& charge, const Eigen::Vector
         readout.reference_pulse_sample_width <= 0.0) {
         return;
     }
-    if(!this->cached_correction.has_value())
+    auto cached = this->cached_correction.find(tel_id);
+    if(cached == this->cached_correction.end())
     {
         Eigen::VectorXd correction = this->compute_integration_correction(
             readout.reference_pulse_shape,
@@ -162,11 +168,17 @@ void LocalPeakExtractor::correction(Eigen::VectorXd& charge, const Eigen::Vector
             this->window_width,
             this->window_shift
         );
-        this->cached_correction = std::move(correction);
+        cached = this->cached_correction.emplace(
+            tel_id, std::move(correction)).first;
     }
     
     for(int ipix = 0; ipix < charge.size(); ipix++)
     {
-        charge(ipix) = charge(ipix) * (*this->cached_correction)[gain_selection[ipix]];
+        const int gain = gain_selection[ipix];
+        if (gain < 0 || gain >= cached->second.size()) {
+            throw std::runtime_error(
+                "gain selection is incompatible with reference pulse channels");
+        }
+        charge(ipix) *= cached->second[gain];
     }
 }
