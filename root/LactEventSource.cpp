@@ -284,29 +284,10 @@ void LactEventSource::load_telescopes()
     readout.n_pixels = static_cast<int>(camera_pixels.size());
     readout.n_samples = waveform_config.available ? waveform_config.n_time_bins : 1;
     readout.n_channels = 1;
-    readout.reference_pulse_sample_width = 0.0;
+    readout.reference_pulse_sample_width = waveform_config.time_bin_width_ns;
     readout.sampling_rate = waveform_config.time_bin_width_ns > 0.0
         ? 1.0 / waveform_config.time_bin_width_ns
         : 0.0;
-    readout.waveform_sample_unit = waveform_config.sample_unit;
-    readout.single_pe_area_mv_ns = waveform_config.single_pe_area_mv_ns;
-    readout.template_time_reference =
-        waveform_config.template_time_reference;
-    if (!waveform_config.reference_pulse_amplitude.empty()) {
-        readout.reference_pulse_shape.resize(
-            1, static_cast<int>(
-                   waveform_config.reference_pulse_amplitude.size()));
-        for (std::size_t i = 0;
-             i < waveform_config.reference_pulse_amplitude.size(); ++i) {
-            readout.reference_pulse_shape(0, static_cast<int>(i)) =
-                waveform_config.reference_pulse_amplitude[i];
-        }
-        readout.reference_pulse_sample_width =
-            (waveform_config.reference_pulse_time_ns.back() -
-             waveform_config.reference_pulse_time_ns.front()) /
-            static_cast<double>(
-                waveform_config.reference_pulse_time_ns.size() - 1);
-    }
 
     for (const auto& tel : telescopes) {
         if (!keep_tel(tel.telescope_id)) {
@@ -368,13 +349,7 @@ void LactEventSource::load_observations()
     set_branch_if_exists(tree, "n_pixels_camera", &row.n_pixels_camera);
     set_branch_if_exists(tree, "pixel_id", &pixel_id);
     set_branch_if_exists(tree, "image_pe", &image_pe);
-    if (tree->GetBranch("image_primary_cherenkov_pe") != nullptr) {
-        tree->SetBranchAddress("image_primary_cherenkov_pe",
-                               &image_cherenkov_pe);
-    } else {
-        set_branch_if_exists(tree, "image_cherenkov_pe",
-                             &image_cherenkov_pe);
-    }
+    set_branch_if_exists(tree, "image_cherenkov_pe", &image_cherenkov_pe);
     set_branch_if_exists(tree, "image_time_peak_ns", &peak_time);
     const auto n_entries = tree->GetEntries();
     observations.reserve(static_cast<std::size_t>(n_entries));
@@ -405,66 +380,14 @@ void LactEventSource::load_waveforms()
 {
     auto* cfg_tree = static_cast<TTree*>(file->Get("waveform_config"));
     if (cfg_tree != nullptr && cfg_tree->GetEntries() > 0) {
-        std::string* sample_unit = nullptr;
-        std::string* template_time_reference = nullptr;
         std::vector<double>* time_centers = nullptr;
-        std::vector<double>* reference_pulse_time = nullptr;
-        std::vector<double>* reference_pulse_amplitude = nullptr;
         set_branch_if_exists(cfg_tree, "n_time_bins", &waveform_config.n_time_bins);
         set_branch_if_exists(cfg_tree, "time_bin_width_ns", &waveform_config.time_bin_width_ns);
-        set_branch_if_exists(cfg_tree, "sample_unit", &sample_unit);
-        set_branch_if_exists(cfg_tree, "single_pe_area_mv_ns",
-                             &waveform_config.single_pe_area_mv_ns);
-        set_branch_if_exists(cfg_tree, "template_time_reference",
-                             &template_time_reference);
         set_branch_if_exists(cfg_tree, "time_centers_ns", &time_centers);
-        set_branch_if_exists(cfg_tree, "reference_pulse_time_ns",
-                             &reference_pulse_time);
-        set_branch_if_exists(cfg_tree, "reference_pulse_amplitude",
-                             &reference_pulse_amplitude);
         cfg_tree->GetEntry(0);
         waveform_config.available = true;
-        waveform_config.sample_unit = sample_unit ? *sample_unit : "";
-        waveform_config.template_time_reference =
-            template_time_reference ? *template_time_reference : "";
         if (time_centers != nullptr) {
             waveform_config.time_centers_ns = *time_centers;
-        }
-        if (reference_pulse_time != nullptr) {
-            waveform_config.reference_pulse_time_ns =
-                *reference_pulse_time;
-        }
-        if (reference_pulse_amplitude != nullptr) {
-            waveform_config.reference_pulse_amplitude =
-                *reference_pulse_amplitude;
-        }
-        if (waveform_config.reference_pulse_time_ns.size() !=
-            waveform_config.reference_pulse_amplitude.size()) {
-            throw std::runtime_error(
-                "inconsistent LACT ROOT reference pulse arrays");
-        }
-        if (!waveform_config.reference_pulse_time_ns.empty()) {
-            if (waveform_config.reference_pulse_time_ns.size() < 2) {
-                throw std::runtime_error(
-                    "LACT ROOT reference pulse needs at least two points");
-            }
-            const auto& times = waveform_config.reference_pulse_time_ns;
-            const double expected_step =
-                (times.back() - times.front()) /
-                static_cast<double>(times.size() - 1);
-            if (!(expected_step > 0.0)) {
-                throw std::runtime_error(
-                    "LACT ROOT reference pulse times must increase");
-            }
-            for (std::size_t i = 1; i < times.size(); ++i) {
-                const double step = times[i] - times[i - 1];
-                if (!(step > 0.0) ||
-                    std::abs(step - expected_step) >
-                        std::max(1.0e-9, 1.0e-6 * expected_step)) {
-                    throw std::runtime_error(
-                        "LACT ROOT reference pulse must use a uniform time grid");
-                }
-            }
         }
     }
 
@@ -474,44 +397,20 @@ void LactEventSource::load_waveforms()
     }
     has_waveform_tree = true;
     for (const char* branch : {"event_id", "telescope_id", "n_pixels_camera",
-                               "n_time_bins", "pixel_id", "time_bin"}) {
+                               "n_time_bins", "pixel_id", "time_bin", "pe"}) {
         require_branch(tree, "waveforms", branch);
-    }
-    const bool has_sample_value = tree->GetBranch("sample_value") != nullptr;
-    const bool has_legacy_pe = tree->GetBranch("pe") != nullptr;
-    if (!has_sample_value && !has_legacy_pe) {
-        throw std::runtime_error(
-            "missing required LACT ROOT waveform value branch: "
-            "waveforms.sample_value or waveforms.pe");
-    }
-    if (waveform_config.sample_unit.empty()) {
-        waveform_config.sample_unit = has_legacy_pe
-            ? "fired_pe_per_sample"
-            : "";
-    }
-    if (waveform_config.sample_unit == "mV") {
-        if (!(waveform_config.single_pe_area_mv_ns > 0.0) ||
-            !std::isfinite(waveform_config.single_pe_area_mv_ns)) {
-            throw std::runtime_error(
-                "LACT ROOT mV waveforms require single_pe_area_mv_ns > 0");
-        }
-        if (waveform_config.reference_pulse_time_ns.empty()) {
-            throw std::runtime_error(
-                "LACT ROOT mV waveforms require a reference pulse");
-        }
     }
     WaveformRow row;
     std::vector<int>* pixel_id = nullptr;
     std::vector<unsigned short>* time_bin = nullptr;
-    std::vector<float>* sample_value = nullptr;
+    std::vector<float>* pe = nullptr;
     set_branch_if_exists(tree, "event_id", &row.event_id);
     set_branch_if_exists(tree, "telescope_id", &row.telescope_id);
     set_branch_if_exists(tree, "n_pixels_camera", &row.n_pixels_camera);
     set_branch_if_exists(tree, "n_time_bins", &row.n_time_bins);
     set_branch_if_exists(tree, "pixel_id", &pixel_id);
     set_branch_if_exists(tree, "time_bin", &time_bin);
-    tree->SetBranchAddress(has_sample_value ? "sample_value" : "pe",
-                           &sample_value);
+    set_branch_if_exists(tree, "pe", &pe);
     bool have_n_time_bins = waveform_config.available && waveform_config.n_time_bins > 0;
     const auto n_entries = tree->GetEntries();
     for (Long64_t i = 0; i < n_entries; ++i) {
@@ -521,10 +420,9 @@ void LactEventSource::load_waveforms()
         }
         row.pixel_id = pixel_id ? *pixel_id : std::vector<int>{};
         row.time_bin = time_bin ? *time_bin : std::vector<unsigned short>{};
-        row.sample_value = sample_value
-            ? *sample_value : std::vector<float>{};
+        row.pe = pe ? *pe : std::vector<float>{};
         if (row.pixel_id.size() != row.time_bin.size() ||
-            row.pixel_id.size() != row.sample_value.size()) {
+            row.pixel_id.size() != row.pe.size()) {
             throw std::runtime_error(
                 "inconsistent LACT ROOT waveform arrays for event_id=" +
                 std::to_string(row.event_id) + " telescope_id=" +
@@ -698,7 +596,7 @@ LactEventSource::dense_waveform(const ObservationRow& obs) const
     for (std::size_t i = 0; i < wf.pixel_id.size(); ++i) {
         const int pix = pixel_index(wf.pixel_id[i]);
         const int bin = static_cast<int>(wf.time_bin[i]);
-        waveform(pix, bin) += static_cast<double>(wf.sample_value[i]);
+        waveform(pix, bin) += static_cast<double>(wf.pe[i]);
     }
     return waveform;
 }
