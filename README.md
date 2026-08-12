@@ -22,5 +22,13 @@ The mapping from LACT_sim ROOT/HDF5 fields to pyLAST data levels and plotting
 interfaces is documented in
 [`docs/lact_sim_data_levels_zh.md`](docs/lact_sim_data_levels_zh.md).
 
+## LACT event reconstruction notebooks
+
+- [`notebooks/lact_event_reconstruction_no_nsb.ipynb`](notebooks/lact_event_reconstruction_no_nsb.ipynb): complete LACT_sim-style event visualization and reconstruction without NSB.
+- [`notebooks/lact_event_reconstruction_with_nsb.ipynb`](notebooks/lact_event_reconstruction_with_nsb.ipynb): the same complete flow after pyLAST Poisson NSB addition and mean-pedestal subtraction.
+
+The same two notebooks are stored in both LACT_sim and pyLAST. Set `INPUT_FILE`
+and `EVENT_ID` in Cell 1, then run all cells.
+
 
 

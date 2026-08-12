@@ -35,6 +35,10 @@ def _image_level_from_type(image_type: str | None = None, image_level: str | Non
         "truth": "simulation",
         "simulation": "simulation",
         "sim": "simulation",
+        "simulation_fake": "simulation_fake",
+        "fake": "simulation_fake",
+        "simulation_fake_clean": "simulation_fake_clean",
+        "fake_clean": "simulation_fake_clean",
         "raw": "dl0",
         "r1": "dl0",
         "dl0": "dl0",
@@ -46,7 +50,10 @@ def _image_level_from_type(image_type: str | None = None, image_level: str | Non
         "dl1": "dl1",
     }
     if key not in aliases:
-        raise ValueError("image_type must be one of: true, raw, nsb, clean")
+        raise ValueError(
+            "image_type must be one of: true, raw, nsb, clean, "
+            "simulation_fake, simulation_fake_clean"
+        )
     return aliases[key]
 
 
@@ -447,6 +454,7 @@ def plot_raw_images(
     root_file: str | PathLike[str] | None = None,
     event_index: int = 0,
     max_events: int = -1,
+    image_level: str = "dl0",
     output_path: str | PathLike[str] | None = None,
     include_non_triggered: bool = False,
     ideal: bool | None = None,
@@ -472,7 +480,7 @@ def plot_raw_images(
         root_file=root_file,
         event_index=event_index,
         max_events=max_events,
-        image_level="dl0",
+        image_level=image_level,
         show_hillas=False,
         ideal=ideal,
         show_ideal_position=show_ideal_position,
@@ -581,6 +589,7 @@ def plot_clean_images(
     root_file: str | PathLike[str] | None = None,
     event_index: int = 0,
     max_events: int = -1,
+    image_level: str = "dl1",
     output_path: str | PathLike[str] | None = None,
     include_non_triggered: bool = False,
     show_hillas: bool = True,
@@ -606,7 +615,7 @@ def plot_clean_images(
         root_file=root_file,
         event_index=event_index,
         max_events=max_events,
-        image_level="dl1",
+        image_level=image_level,
         show_hillas=show_hillas,
         only_hillas_tels=only_hillas_tels,
         show_ideal_position=show_ideal_position,
@@ -777,19 +786,39 @@ def plot_root_event_cameras(
     return result
 
 
-def hillas_parameter_rows(event):
-    """Return per-telescope Hillas parameters already stored on ``event.dl1``."""
+def hillas_parameter_rows(event, image_level: str = "dl1"):
+    """Return stored per-telescope Hillas parameters for an image level."""
 
     rows = []
-    dl1 = getattr(event, "dl1", None)
-    tels = getattr(dl1, "tels", {}) if dl1 is not None else {}
+    if image_level in {"simulation_fake", "simulation_fake_clean"}:
+        simulation = getattr(event, "simulation", None)
+        all_tels = getattr(simulation, "tels", {}) if simulation is not None else {}
+        triggered = set(getattr(simulation, "triggered_tels", []))
+        tels = {
+            tel_id: camera
+            for tel_id, camera in all_tels.items()
+            if not triggered or tel_id in triggered
+        }
+    else:
+        dl1 = getattr(event, "dl1", None)
+        tels = getattr(dl1, "tels", {}) if dl1 is not None else {}
+
     for tel_id, tel in sorted(tels.items()):
         image_parameters = getattr(tel, "image_parameters", None)
         hillas = getattr(image_parameters, "hillas", None)
         if hillas is None:
             continue
-        image = np.asarray(getattr(tel, "image", []), dtype=float)
-        mask = np.asarray(getattr(tel, "mask", np.ones_like(image)), dtype=bool)
+        if image_level in {"simulation_fake", "simulation_fake_clean"}:
+            image = np.asarray(getattr(tel, "fake_image", []), dtype=float)
+            mask = np.asarray(
+                getattr(tel, "fake_image_mask", np.ones_like(image)),
+                dtype=bool,
+            )
+        else:
+            image = np.asarray(getattr(tel, "image", []), dtype=float)
+            mask = np.asarray(getattr(tel, "mask", np.ones_like(image)), dtype=bool)
+        if mask.size != image.size:
+            mask = np.ones_like(image, dtype=bool)
         rows.append(
             {
                 "tel_id": int(tel_id),
@@ -817,11 +846,17 @@ def reconstruction_summary(event, reconstructor: str = "HillasReconstructor"):
     shower = getattr(getattr(event, "simulation", None), "shower", None)
     geometry = getattr(getattr(event, "dl2", None), "geometry", {}) or {}
     reco = geometry.get(reconstructor)
+    reco_telescopes = (
+        [int(tel_id) for tel_id in getattr(reco, "telescopes", [])]
+        if reco is not None
+        else []
+    )
     summary = {
         "event_id": getattr(event, "event_id", getattr(event, "count", None)),
         "reconstructor": reconstructor,
         "is_valid": bool(getattr(reco, "is_valid", False)) if reco is not None else False,
-        "n_hillas_telescopes": len(hillas_parameter_rows(event)),
+        "n_hillas_telescopes": len(reco_telescopes),
+        "hillas_telescope_ids": reco_telescopes,
     }
 
     if shower is not None:
