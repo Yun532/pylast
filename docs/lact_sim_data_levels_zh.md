@@ -142,6 +142,25 @@ visualizer.plot_event(event, image_level="dl0")
 visualizer.plot_event(event, image_level="simulation")
 ```
 
+相机图可以同时叠加真实方向点和真实 shower-detector plane（SDP）：
+
+```python
+from pylast.visualize import plot_clean_images
+
+plot_clean_images(
+    event,
+    visualizer=visualizer,
+    ideal=True,             # 兼容入口：同时显示真实方向点和真实 SDP
+    show_truth_sdp=True,    # 也可单独控制真实 SDP
+    reco=True,
+)
+```
+
+其中洋红 `×` 是 MC 真实方向，洋红实线是由 MC `alt/az`、真实 core 和望远镜
+位置构造的真实 SDP 投影；红色椭圆/虚线是 Hillas，蓝色 `+`/虚线是重建
+方向/重建 SDP。若输入没有有限的真实 core（例如部分最小 Photon CSV），真实
+SDP 线会自动省略，但真实方向点仍可显示。
+
 不要依赖通用绘图函数的默认值。pyLAST 同时服务于 LACT ROOT、simtelarray
 等输入，不同接口的历史默认层级可能不同；显式指定 `image_level` 最安全。
 

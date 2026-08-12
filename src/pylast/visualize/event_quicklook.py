@@ -381,6 +381,7 @@ def plot_event_cameras(
     only_hillas_tels: bool = False,
     show_ideal_position: bool = False,
     ideal: bool | None = None,
+    show_truth_sdp: bool = False,
     show_reco_position: bool = False,
     show_reco_sdp: bool = False,
     reco_sdp: bool | None = None,
@@ -394,6 +395,7 @@ def plot_event_cameras(
 
     if ideal is not None:
         show_ideal_position = bool(ideal)
+        show_truth_sdp = bool(ideal)
     if reco is not None:
         show_reco_position = bool(reco)
         show_reco_sdp = bool(reco)
@@ -411,6 +413,7 @@ def plot_event_cameras(
             show_hillas=show_hillas,
             only_hillas_tels=only_hillas_tels,
             show_ideal_position=show_ideal_position,
+            show_truth_sdp=show_truth_sdp,
             show_reco_position=show_reco_position,
             show_reco_sdp=show_reco_sdp,
             reconstructor=reconstructor,
@@ -432,6 +435,7 @@ def plot_event_cameras(
         only_hillas_tels=only_hillas_tels,
         include_non_triggered=include_non_triggered,
         show_ideal_position=show_ideal_position,
+        show_truth_sdp=show_truth_sdp,
         show_reco_position=show_reco_position,
         show_reco_sdp=show_reco_sdp,
         reconstructor=reconstructor,
@@ -459,6 +463,7 @@ def plot_raw_images(
     include_non_triggered: bool = False,
     ideal: bool | None = None,
     show_ideal_position: bool = False,
+    show_truth_sdp: bool = False,
     reco: bool | None = None,
     show_reco_sdp: bool = False,
     reco_sdp: bool | None = None,
@@ -484,6 +489,7 @@ def plot_raw_images(
         show_hillas=False,
         ideal=ideal,
         show_ideal_position=show_ideal_position,
+        show_truth_sdp=show_truth_sdp,
         reco=reco,
         show_reco_position=show_reco_position,
         show_reco_sdp=show_reco_sdp,
@@ -515,6 +521,7 @@ def plot_gathered_images(
     show_colorbar: bool = False,
     ideal: bool | None = None,
     show_ideal_position: bool = False,
+    show_truth_sdp: bool = False,
     reco: bool | None = None,
     show_reco_sdp: bool = False,
     reco_sdp: bool | None = None,
@@ -532,6 +539,7 @@ def plot_gathered_images(
     image_level = _image_level_from_type(image_type=image_type, image_level=image_level)
     if ideal is not None:
         show_ideal_position = bool(ideal)
+        show_truth_sdp = bool(ideal)
     if reco is not None:
         show_reco_position = bool(reco)
         show_reco_sdp = bool(reco)
@@ -561,6 +569,7 @@ def plot_gathered_images(
         zero_eps=zero_eps,
         show_colorbar=show_colorbar,
         show_ideal_position=show_ideal_position,
+        show_truth_sdp=show_truth_sdp,
         show_reco_position=show_reco_position,
         show_reco_sdp=show_reco_sdp,
         reconstructor=reconstructor,
@@ -596,6 +605,7 @@ def plot_clean_images(
     only_hillas_tels: bool = False,
     show_ideal_position: bool = False,
     ideal: bool | None = None,
+    show_truth_sdp: bool = False,
     show_reco_position: bool = False,
     reco: bool | None = None,
     show_reco_sdp: bool = False,
@@ -620,6 +630,7 @@ def plot_clean_images(
         only_hillas_tels=only_hillas_tels,
         show_ideal_position=show_ideal_position,
         ideal=ideal,
+        show_truth_sdp=show_truth_sdp,
         show_reco_position=show_reco_position,
         reco=reco,
         show_reco_sdp=show_reco_sdp,
@@ -748,6 +759,7 @@ def plot_root_event_cameras(
     only_hillas_tels: bool = False,
     show_ideal_position: bool = False,
     ideal: bool | None = None,
+    show_truth_sdp: bool = False,
     show_reco_position: bool = False,
     reco: bool | None = None,
     show_reco_sdp: bool = False,
@@ -761,6 +773,7 @@ def plot_root_event_cameras(
 
     if ideal is not None:
         show_ideal_position = bool(ideal)
+        show_truth_sdp = bool(ideal)
     if reco is not None:
         show_reco_position = bool(reco)
         show_reco_sdp = bool(reco)
@@ -775,6 +788,7 @@ def plot_root_event_cameras(
         show_hillas=show_hillas,
         only_hillas_tels=only_hillas_tels,
         show_ideal_position=show_ideal_position,
+        show_truth_sdp=show_truth_sdp,
         show_reco_position=show_reco_position,
         show_reco_sdp=show_reco_sdp,
         reconstructor=reconstructor,

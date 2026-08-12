@@ -1929,6 +1929,7 @@ class EventVisualizer:
         only_hillas_tels: bool = False,
         include_non_triggered: bool = False,
         show_ideal_position: bool = False,
+        show_truth_sdp: bool = False,
         show_reco_position: bool = False,
         show_reco_sdp: bool = False,
         reconstructor: str = "HillasReconstructor",
@@ -1986,6 +1987,8 @@ class EventVisualizer:
                 self._draw_hillas_ellipse(axes[index], hillas[tel_id])
             if show_ideal_position:
                 self._draw_ideal_position(axes[index], event)
+            if show_truth_sdp:
+                self._draw_truth_sdp_line(axes[index], event, tel_id)
             if show_reco_position:
                 self._draw_reco_position(axes[index], event, reconstructor=reconstructor)
             if show_reco_sdp:
@@ -2021,6 +2024,7 @@ class EventVisualizer:
         zero_eps: float = 0.0,
         show_colorbar: bool = False,
         show_ideal_position: bool = False,
+        show_truth_sdp: bool = False,
         show_reco_position: bool = False,
         show_reco_sdp: bool = False,
         reconstructor: str = "HillasReconstructor",
@@ -2111,6 +2115,9 @@ class EventVisualizer:
 
         if show_ideal_position:
             self._draw_ideal_position(ax, event)
+        if show_truth_sdp:
+            for tel_id in tel_ids:
+                self._draw_truth_sdp_line(ax, event, tel_id)
         if show_reco_position:
             self._draw_reco_position(ax, event, reconstructor=reconstructor)
         if show_reco_sdp:
@@ -2463,6 +2470,103 @@ class EventVisualizer:
                 zorder=10001,
             )
 
+    def _draw_sdp_line(
+        self,
+        ax,
+        event,
+        tel_id: int,
+        source_az: float,
+        source_alt: float,
+        core_xy: Tuple[float, float],
+        *,
+        color: str,
+        line_style: str,
+        line_width: float,
+    ) -> bool:
+        """Project one shower-detector plane onto a telescope camera."""
+
+        if (
+            not hasattr(event, "pointing")
+            or event.pointing is None
+            or tel_id not in self.tel_geoms
+            or not np.all(np.isfinite([source_az, source_alt, *core_xy]))
+        ):
+            return False
+
+        geom = self.tel_geoms[tel_id]
+        tel_az = float(event.pointing.array_azimuth)
+        tel_zenith = np.pi / 2 - float(event.pointing.array_altitude)
+        source = _enu_from_az_zd(source_az, np.pi / 2 - source_alt)
+        core_vector = np.array(
+            [core_xy[0] - geom.pos_x, core_xy[1] - geom.pos_y, 0.0],
+            dtype=float,
+        )
+        normal = np.cross(source, core_vector)
+        if not np.all(np.isfinite(normal)) or np.linalg.norm(normal) <= 0.0:
+            return False
+
+        e_az, e_el, optical_axis = _camera_basis(tel_az, tel_zenith)
+        direction = np.cross(normal, optical_axis)
+        camera_dx = float(direction @ e_el)
+        camera_dy = float(direction @ e_az)
+        norm = float(np.hypot(camera_dx, camera_dy))
+        if not np.isfinite(norm) or norm <= 0.0:
+            return False
+        camera_dx /= norm
+        camera_dy /= norm
+
+        _, _, x_camera, y_camera = incident_point_on_camera(
+            source_azimuth_rad=source_az,
+            source_zenith_rad=np.pi / 2 - source_alt,
+            telescope_azimuth_rad=tel_az,
+            telescope_zenith_rad=tel_zenith,
+            focal_length=geom.focal_length,
+        )
+        if x_camera is None or y_camera is None or not np.all(
+            np.isfinite([x_camera, y_camera])
+        ):
+            return False
+
+        xlim = ax.get_xlim()
+        ylim = ax.get_ylim()
+        half_len = 0.55 * float(
+            np.hypot(xlim[1] - xlim[0], ylim[1] - ylim[0])
+        )
+        plot_x, plot_y = _camera_to_plot_xy(float(x_camera), float(y_camera))
+        plot_dx, plot_dy = _camera_to_plot_xy(camera_dx, camera_dy)
+        ax.plot(
+            [plot_x - half_len * plot_dx, plot_x + half_len * plot_dx],
+            [plot_y - half_len * plot_dy, plot_y + half_len * plot_dy],
+            color=color,
+            lw=line_width,
+            ls=line_style,
+            alpha=0.95,
+            zorder=10000,
+        )
+        return True
+
+    def _draw_truth_sdp_line(self, ax, event, tel_id: int) -> bool:
+        """Draw the MC-truth SDP; return False when truth/core is unavailable."""
+
+        try:
+            shower = _shower(event)
+            core_xy = _ground_to_plot_xy(
+                float(shower.core_x), float(shower.core_y)
+            )
+            return self._draw_sdp_line(
+                ax,
+                event,
+                tel_id,
+                float(shower.az),
+                float(shower.alt),
+                core_xy,
+                color="magenta",
+                line_style="-",
+                line_width=1.8,
+            )
+        except (AttributeError, TypeError, ValueError):
+            return False
+
     def _draw_reco_sdp_line(self, ax, event, tel_id: int, reconstructor: str = "HillasReconstructor"):
         if not hasattr(event, "pointing") or event.pointing is None or tel_id not in self.tel_geoms:
             return
@@ -2475,48 +2579,16 @@ class EventVisualizer:
         if not np.isfinite(reco_alt) or not np.isfinite(reco_az):
             return
 
-        geom = self.tel_geoms[tel_id]
-        tel_az = float(event.pointing.array_azimuth)
-        tel_zenith = np.pi / 2 - float(event.pointing.array_altitude)
-        source = _enu_from_az_zd(reco_az, np.pi / 2 - reco_alt)
-        core_vector = np.array([reco_core[0] - geom.pos_x, reco_core[1] - geom.pos_y, 0.0], dtype=float)
-        normal = np.cross(source, core_vector)
-        if not np.all(np.isfinite(normal)) or np.linalg.norm(normal) <= 0.0:
-            return
-
-        e_az, e_el, optical_axis = _camera_basis(tel_az, tel_zenith)
-        direction = np.cross(normal, optical_axis)
-        camera_dx = float(direction @ e_el)
-        camera_dy = float(direction @ e_az)
-        norm = float(np.hypot(camera_dx, camera_dy))
-        if not np.isfinite(norm) or norm <= 0.0:
-            return
-        camera_dx /= norm
-        camera_dy /= norm
-
-        _, _, x_camera, y_camera = incident_point_on_camera(
-            source_azimuth_rad=reco_az,
-            source_zenith_rad=np.pi / 2 - reco_alt,
-            telescope_azimuth_rad=tel_az,
-            telescope_zenith_rad=tel_zenith,
-            focal_length=geom.focal_length,
-        )
-        if x_camera is None or y_camera is None or not np.all(np.isfinite([x_camera, y_camera])):
-            return
-
-        xlim = ax.get_xlim()
-        ylim = ax.get_ylim()
-        half_len = 0.55 * float(np.hypot(xlim[1] - xlim[0], ylim[1] - ylim[0]))
-        plot_x, plot_y = _camera_to_plot_xy(float(x_camera), float(y_camera))
-        plot_dx, plot_dy = _camera_to_plot_xy(camera_dx, camera_dy)
-        ax.plot(
-            [plot_x - half_len * plot_dx, plot_x + half_len * plot_dx],
-            [plot_y - half_len * plot_dy, plot_y + half_len * plot_dy],
+        return self._draw_sdp_line(
+            ax,
+            event,
+            tel_id,
+            reco_az,
+            reco_alt,
+            reco_core,
             color="#2166ac",
-            lw=1.8,
-            ls="--",
-            alpha=0.95,
-            zorder=10000,
+            line_style="--",
+            line_width=1.8,
         )
 
     def _finish(self, fig, output_path: Optional[str], show: bool):
