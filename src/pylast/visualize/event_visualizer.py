@@ -366,12 +366,7 @@ def _selected_image_tel_ids(
         return sorted(int(tel_id) for tel_id in data.active_tels)
 
     selected = _triggered_tel_ids(event, source=source)
-    if selected.size == 0 and image_level in {
-        "simulation",
-        "simulation_fake",
-        "simulation_fake_clean",
-        "dl1",
-    }:
+    if selected.size == 0 and image_level in {"simulation", "dl1"}:
         # Some sources do not preserve a triggered-telescope list at every
         # stage. Simtel true-image plots use simulation.tels directly, and
         # ImageProcessor fills event.dl1 while rebuilding simulation-level
@@ -487,18 +482,6 @@ def _image_from_event(event, tel_id: int, image_level: str) -> np.ndarray:
             return np.array([], dtype=float)
         return _to_numpy(event.simulation.tels[tel_id].true_image)
 
-    if image_level in {"simulation_fake", "simulation_fake_clean"}:
-        if event.simulation is None or tel_id not in event.simulation.tels:
-            return np.array([], dtype=float)
-        camera = event.simulation.tels[tel_id]
-        image = _to_numpy(camera.fake_image)
-        if image_level == "simulation_fake_clean":
-            mask = _to_numpy(camera.fake_image_mask, dtype=bool)
-            if mask.size != image.size:
-                return np.array([], dtype=float)
-            image = image * mask
-        return image
-
     if image_level == "dl0":
         if not hasattr(event, "dl0") or event.dl0 is None or tel_id not in event.dl0.tels:
             return np.array([], dtype=float)
@@ -513,10 +496,7 @@ def _image_from_event(event, tel_id: int, image_level: str) -> np.ndarray:
             image = image * _to_numpy(camera.mask, dtype=bool)
         return image
 
-    raise ValueError(
-        "image_level must be one of: simulation, simulation_fake, "
-        "simulation_fake_clean, dl0, dl1"
-    )
+    raise ValueError("image_level must be one of: simulation, dl0, dl1")
 
 
 def read_event_data(event, tel_geoms: Mapping[int, TelescopeGeometry], image_level: str = "simulation") -> EventData:
@@ -1488,7 +1468,7 @@ class EventVisualizer:
         """
 
         data = read_event_data(event, self.tel_geoms, image_level=image_level)
-        hillas = self._get_hillas_parameters(event, image_level=image_level)
+        hillas = self._get_hillas_parameters(event)
         tel_ids = _selected_image_tel_ids(
             event,
             data,
@@ -1687,7 +1667,7 @@ class EventVisualizer:
             raise ImportError("plot_event_sdp_planes_3d_interactive requires plotly") from exc
 
         data = read_event_data(event, self.tel_geoms, image_level=image_level)
-        hillas = self._get_hillas_parameters(event, image_level=image_level)
+        hillas = self._get_hillas_parameters(event)
         tel_ids = _selected_image_tel_ids(
             event,
             data,
@@ -1935,7 +1915,7 @@ class EventVisualizer:
         show: bool = True,
     ):
         data = read_event_data(event, self.tel_geoms, image_level=image_level)
-        hillas = self._get_hillas_parameters(event, image_level=image_level)
+        hillas = self._get_hillas_parameters(event)
 
         tel_ids = _selected_image_tel_ids(
             event,
@@ -2030,7 +2010,7 @@ class EventVisualizer:
             raise ValueError("only_hillas and only_image cannot both be true")
 
         data = read_event_data(event, self.tel_geoms, image_level=image_level)
-        hillas = self._get_hillas_parameters(event, image_level=image_level)
+        hillas = self._get_hillas_parameters(event)
         tel_ids = _selected_image_tel_ids(
             event,
             data,
@@ -2318,25 +2298,7 @@ class EventVisualizer:
             self._transparent_plasma = mcolors.ListedColormap([(0, 0, 0, 0.0)] + [tuple(rgba) for rgba in base])
         return self._transparent_plasma
 
-    def _get_hillas_parameters(
-        self,
-        event,
-        image_level: str = "dl1",
-    ) -> Dict[int, HillasParameters]:
-        if image_level in {"simulation_fake", "simulation_fake_clean"}:
-            simulation = getattr(event, "simulation", None)
-            tels = getattr(simulation, "tels", {}) if simulation is not None else {}
-            hillas = {}
-            for tel_id, camera in tels.items():
-                if tel_id not in self.tel_geoms:
-                    continue
-                image_parameters = getattr(camera, "image_parameters", None)
-                params = getattr(image_parameters, "hillas", None)
-                if params is None:
-                    continue
-                hillas[tel_id] = self._scale_hillas(tel_id, params)
-            return hillas
-
+    def _get_hillas_parameters(self, event) -> Dict[int, HillasParameters]:
         if not hasattr(event, "dl1") or event.dl1 is None or not hasattr(event.dl1, "tels"):
             return {}
         hillas = {}
