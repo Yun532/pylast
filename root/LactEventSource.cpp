@@ -376,6 +376,23 @@ void LactEventSource::load_observations()
                              &image_cherenkov_pe);
     }
     set_branch_if_exists(tree, "image_time_peak_ns", &peak_time);
+    set_branch_if_exists(tree, "trigger_time_ns",
+                         &row.trigger_timing.trigger_time_ns);
+    has_trigger_first_time =
+        tree->GetBranch("trigger_first_time_ns") != nullptr;
+    has_trigger_max_multiplicity_time =
+        tree->GetBranch("trigger_max_multiplicity_time_ns") != nullptr;
+    has_geometric_delay = tree->GetBranch("geometric_delay_ns") != nullptr;
+    has_coincidence_time = tree->GetBranch("coincidence_time_ns") != nullptr;
+    set_branch_if_exists(tree, "trigger_first_time_ns",
+                         &row.trigger_timing.trigger_first_time_ns);
+    set_branch_if_exists(
+        tree, "trigger_max_multiplicity_time_ns",
+        &row.trigger_timing.trigger_max_multiplicity_time_ns);
+    set_branch_if_exists(tree, "geometric_delay_ns",
+                         &row.trigger_timing.geometric_delay_ns);
+    set_branch_if_exists(tree, "coincidence_time_ns",
+                         &row.trigger_timing.coincidence_time_ns);
     const auto n_entries = tree->GetEntries();
     observations.reserve(static_cast<std::size_t>(n_entries));
     for (Long64_t i = 0; i < n_entries; ++i) {
@@ -388,6 +405,8 @@ void LactEventSource::load_observations()
         row.image_cherenkov_pe =
             image_cherenkov_pe ? *image_cherenkov_pe : std::vector<float>{};
         row.image_time_peak_ns = peak_time ? *peak_time : std::vector<float>{};
+        row.trigger_timing.trigger_diagnostics_available =
+            has_trigger_first_time && has_trigger_max_multiplicity_time;
         const auto key = std::make_pair(row.event_id, row.telescope_id);
         const std::size_t row_index = observations.size();
         if (!observation_index.emplace(key, row_index).second) {
@@ -399,6 +418,36 @@ void LactEventSource::load_observations()
         observation_indices_by_event[row.event_id].push_back(row_index);
         observations.push_back(row);
     }
+}
+
+std::map<int, LactEventSource::TriggerTimingRow>
+LactEventSource::get_trigger_timing(long long event_id) const
+{
+    std::map<int, TriggerTimingRow> result;
+    const auto event_it = observation_indices_by_event.find(event_id);
+    if (event_it == observation_indices_by_event.end()) {
+        return result;
+    }
+    for (const auto row_index : event_it->second) {
+        const auto& obs = observations.at(row_index);
+        if (!obs.triggered || !std::isfinite(obs.trigger_timing.trigger_time_ns)) {
+            continue;
+        }
+        auto timing = obs.trigger_timing;
+        if (!std::isfinite(timing.trigger_first_time_ns)) {
+            timing.trigger_first_time_ns = timing.trigger_time_ns;
+        }
+        if (!std::isfinite(timing.trigger_max_multiplicity_time_ns)) {
+            timing.trigger_max_multiplicity_time_ns = timing.trigger_time_ns;
+        }
+        if (!std::isfinite(timing.coincidence_time_ns) &&
+            std::isfinite(timing.geometric_delay_ns)) {
+            timing.coincidence_time_ns =
+                timing.trigger_time_ns + timing.geometric_delay_ns;
+        }
+        result.emplace(obs.telescope_id, timing);
+    }
+    return result;
 }
 
 void LactEventSource::load_waveforms()

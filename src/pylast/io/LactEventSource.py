@@ -364,6 +364,12 @@ class LactEventSource:
         event_id = _event_id(event_or_id)
         if event_id is None:
             return {}
+        native_getter = getattr(self._source, "get_trigger_timing", None)
+        if native_getter is not None:
+            return {
+                int(telescope_id): dict(values)
+                for telescope_id, values in native_getter(event_id).items()
+            }
         self._load_root_trigger_timing()
         return {
             telescope_id: dict(values)

@@ -676,6 +676,7 @@ class EventVisualizer:
         highlighted_tel_ids: Optional[Iterable[int]] = None,
         core_position: Optional[Sequence[float]] = None,
         include_non_triggered: bool = False,
+        show_unselected_telescopes: bool = True,
         show_lhaaso_background: bool = True,
         ed_pos_file: Optional[str] = None,
         md_pos_file: Optional[str] = None,
@@ -686,13 +687,20 @@ class EventVisualizer:
         finish: bool = True,
     ):
         data = read_event_data(event, self.tel_geoms, image_level=image_level)
-        tel_ids = sorted(self.tel_geoms)
-        east = np.asarray([self.tel_geoms[t].pos_x for t in tel_ids], dtype=float)
-        north = np.asarray([self.tel_geoms[t].pos_y for t in tel_ids], dtype=float)
-        raw_values = np.asarray([data.image_sum_by_tel[t] for t in tel_ids], dtype=float)
+        all_tel_ids = sorted(self.tel_geoms)
         if highlighted_tel_ids is None:
             highlighted_tel_ids = _triggered_tel_ids(event, source=self.source)
         highlighted_tel_ids = set(int(t) for t in highlighted_tel_ids)
+        tel_ids = (
+            all_tel_ids
+            if show_unselected_telescopes
+            else [t for t in all_tel_ids if t in highlighted_tel_ids]
+        )
+        if not tel_ids:
+            raise ValueError("no selected telescopes are available for this event")
+        east = np.asarray([self.tel_geoms[t].pos_x for t in tel_ids], dtype=float)
+        north = np.asarray([self.tel_geoms[t].pos_y for t in tel_ids], dtype=float)
+        raw_values = np.asarray([data.image_sum_by_tel[t] for t in tel_ids], dtype=float)
         triggered_mask = np.asarray([t in highlighted_tel_ids for t in tel_ids], dtype=bool)
         values = raw_values if include_non_triggered else np.where(triggered_mask, raw_values, 0.0)
 
@@ -841,7 +849,9 @@ class EventVisualizer:
                 )
         ax.set_xlabel("East (m)")
         ax.set_ylabel("North (m)")
-        ax.set_title(f"LACT array event_id={data.event_id}")
+        ax.set_title(
+            f"LACT array event_id={data.event_id} | telescopes={len(tel_ids)}"
+        )
         extra_x = [core_x]
         extra_y = [core_y]
         if reco_core is not None:
@@ -973,6 +983,7 @@ class EventVisualizer:
         output_path: Optional[str] = None,
         image_level: str = "dl0",
         include_non_triggered: bool = False,
+        show_unselected_telescopes: bool = True,
         show_truth_direction: bool = True,
         show_reco_direction: bool = True,
         reconstructor: str = "HillasReconstructor",
@@ -983,6 +994,7 @@ class EventVisualizer:
             output_path=output_path,
             image_level=image_level,
             include_non_triggered=include_non_triggered,
+            show_unselected_telescopes=show_unselected_telescopes,
             show_lhaaso_background=True,
             show_truth_direction=show_truth_direction,
             show_reco_direction=show_reco_direction,

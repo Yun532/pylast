@@ -115,6 +115,25 @@ NB_MODULE(_pyeventsource, m){
         .def("__len__", [](LactEventSource& self) {
             return self.event_count();
         })
+        .def("get_trigger_timing", [](const LactEventSource& self,
+                                       long long event_id) {
+            nb::dict result;
+            for (const auto& [telescope_id, timing] :
+                 self.get_trigger_timing(event_id)) {
+                nb::dict values;
+                values["trigger_time_ns"] = timing.trigger_time_ns;
+                values["trigger_first_time_ns"] =
+                    timing.trigger_first_time_ns;
+                values["trigger_max_multiplicity_time_ns"] =
+                    timing.trigger_max_multiplicity_time_ns;
+                values["trigger_diagnostics_available"] =
+                    timing.trigger_diagnostics_available;
+                values["geometric_delay_ns"] = timing.geometric_delay_ns;
+                values["coincidence_time_ns"] = timing.coincidence_time_ns;
+                result[nb::int_(telescope_id)] = values;
+            }
+            return result;
+        }, nb::arg("event_id"))
         .def("__repr__", [](LactEventSource& self) {
             return fmt::format("LactEventSource(filename={})", self.input_filename);
         });

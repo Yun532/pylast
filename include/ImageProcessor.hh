@@ -73,6 +73,9 @@ private:
   double poisson_noise = 0.0;
   int fake_trigger_pixels = 0;
   double fake_trigger_pe = 0;
+  bool recompute_trigger = true;
+  int fake_trigger_min_pixels = 5;
+  double fake_trigger_min_true_image_pe = 10.0;
   double cut_radius = 0.0;
   bool use_cut_radius = false;
   bool use_random_gaussian = false;

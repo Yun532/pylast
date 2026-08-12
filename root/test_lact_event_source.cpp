@@ -124,6 +124,11 @@ void writeFixture(const std::filesystem::path& path, WaveformCase waveform_case)
     std::vector<float> image_pe = {4.25f};
     std::vector<float> image_cherenkov_pe = {5.0f};
     std::vector<float> image_time_peak_ns = {0.5f};
+    double trigger_time_ns = 12.5;
+    double trigger_first_time_ns = 11.5;
+    double trigger_max_multiplicity_time_ns = 12.5;
+    double geometric_delay_ns = -2.0;
+    double coincidence_time_ns = 10.5;
     TTree observations("observations", "observations");
     observations.Branch("event_id", &event_id);
     observations.Branch("telescope_id", &telescope_id);
@@ -133,6 +138,12 @@ void writeFixture(const std::filesystem::path& path, WaveformCase waveform_case)
     observations.Branch("image_pe", &image_pe);
     observations.Branch("image_cherenkov_pe", &image_cherenkov_pe);
     observations.Branch("image_time_peak_ns", &image_time_peak_ns);
+    observations.Branch("trigger_time_ns", &trigger_time_ns);
+    observations.Branch("trigger_first_time_ns", &trigger_first_time_ns);
+    observations.Branch("trigger_max_multiplicity_time_ns",
+                        &trigger_max_multiplicity_time_ns);
+    observations.Branch("geometric_delay_ns", &geometric_delay_ns);
+    observations.Branch("coincidence_time_ns", &coincidence_time_ns);
     observations.Fill();
     event_id = 101;
     triggered = false;
@@ -225,6 +236,21 @@ int main()
                 "native triggered telescope list");
         require(second.simulation->triggered_tels.empty(),
                 "empty trigger list must remain valid");
+        const auto trigger_timing = complete_source.get_trigger_timing(100);
+        require(trigger_timing.size() == 1 && trigger_timing.count(0) == 1,
+                "native trigger timing row");
+        require(std::abs(trigger_timing.at(0).trigger_time_ns - 12.5) <
+                    1.0e-12 &&
+                std::abs(trigger_timing.at(0).trigger_first_time_ns - 11.5) <
+                    1.0e-12 &&
+                std::abs(trigger_timing.at(0).geometric_delay_ns + 2.0) <
+                    1.0e-12 &&
+                std::abs(trigger_timing.at(0).coincidence_time_ns - 10.5) <
+                    1.0e-12 &&
+                trigger_timing.at(0).trigger_diagnostics_available,
+                "native trigger timing values");
+        require(complete_source.get_trigger_timing(101).empty(),
+                "non-triggered event must not expose trigger timing");
         require(complete_source.subarray.has_value(),
                 "LACT subarray must be available");
         const auto& geometry = complete_source.subarray->tels.at(0)

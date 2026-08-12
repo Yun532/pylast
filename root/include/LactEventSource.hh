@@ -16,6 +16,7 @@
 
 #include <array>
 #include <cstddef>
+#include <limits>
 #include <map>
 #include <memory>
 #include <set>
@@ -26,6 +27,16 @@
 class LactEventSource : public EventSource
 {
 public:
+    struct TriggerTimingRow {
+        double trigger_time_ns = std::numeric_limits<double>::quiet_NaN();
+        double trigger_first_time_ns = std::numeric_limits<double>::quiet_NaN();
+        double trigger_max_multiplicity_time_ns =
+            std::numeric_limits<double>::quiet_NaN();
+        double geometric_delay_ns = std::numeric_limits<double>::quiet_NaN();
+        double coincidence_time_ns = std::numeric_limits<double>::quiet_NaN();
+        bool trigger_diagnostics_available = false;
+    };
+
     LactEventSource(const std::string& filename,
                     int64_t max_events = -1,
                     std::vector<int> subarray = {},
@@ -49,6 +60,7 @@ public:
         return *shower_array;
     }
     std::size_t event_count() const { return event_order.size(); }
+    std::map<int, TriggerTimingRow> get_trigger_timing(long long event_id) const;
 
 private:
     struct CameraPixelRow {
@@ -101,6 +113,7 @@ private:
         std::vector<float> image_pe;
         std::vector<float> image_cherenkov_pe;
         std::vector<float> image_time_peak_ns;
+        TriggerTimingRow trigger_timing;
     };
 
     struct WaveformRow {
@@ -158,5 +171,9 @@ private:
     std::map<std::pair<long long, int>, WaveformRow> waveforms;
     WaveformConfig waveform_config;
     bool has_waveform_tree = false;
+    bool has_trigger_first_time = false;
+    bool has_trigger_max_multiplicity_time = false;
+    bool has_geometric_delay = false;
+    bool has_coincidence_time = false;
     std::vector<long long> event_order;
 };
