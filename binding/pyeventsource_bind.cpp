@@ -134,6 +134,22 @@ NB_MODULE(_pyeventsource, m){
             }
             return result;
         }, nb::arg("event_id"))
+        .def("get_observation_timing", [](const LactEventSource& self,
+                                             long long event_id) {
+            nb::dict result;
+            for (const auto& [telescope_id, timing] :
+                 self.get_observation_timing(event_id)) {
+                nb::dict values;
+                values["reference_time_ns"] = timing.reference_time_ns;
+                values["time_first_ns"] = timing.time_first_ns;
+                values["time_mean_ns"] = timing.time_mean_ns;
+                values["time_rms_ns"] = timing.time_rms_ns;
+                values["time_peak_ns"] = timing.time_peak_ns;
+                values["geometric_delay_ns"] = timing.geometric_delay_ns;
+                result[nb::int_(telescope_id)] = values;
+            }
+            return result;
+        }, nb::arg("event_id"))
         .def("__repr__", [](LactEventSource& self) {
             return fmt::format("LactEventSource(filename={})", self.input_filename);
         });

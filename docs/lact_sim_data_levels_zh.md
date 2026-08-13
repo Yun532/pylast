@@ -26,10 +26,13 @@ ROOT observations.image_pe
 pyLAST event.dl0              ROOT waveforms.sample_value
                                     |
                                     v
-                              pyLAST R1 (mV)
+                              LactEventSource mV→PE
                                     |
                                     v
-                              Calibrator -> DL0 (PE)
+                              pyLAST R1 (PE charge/bin)
+                                    |
+                                    v
+                              原版 Calibrator -> DL0 (PE)
 ```
 
 Cherenkov 真值同时走一条独立的诊断路径：
@@ -85,9 +88,9 @@ image = event.dl0.tels[tel_id].image
 truth = event.simulation.tels[tel_id].true_image
 ```
 
-当文件包含 `waveforms` 树时，读取器把 `waveforms.sample_value` 原样建立为 R1；
-实测模式下单位为 mV。如果不运行 `Calibrator`，DL0 不存在。完整波形积分的
-mV→PE 定标是：
+当文件包含 `waveforms` 树时，ROOT 中的 `waveforms.sample_value` 仍保存原始 mV
+采样。`LactEventSource` 在建立 R1 时按下式转换为“每个采样点贡献的 PE 电荷”；
+如果不运行 `Calibrator`，DL0 不存在：
 
 ```text
 PE = sum_t(sample_value_mV) * sample_width_ns / single_pe_area_mv_ns
@@ -107,10 +110,11 @@ calibrator(event)
 image = event.dl0.tels[tel_id].image
 ```
 
-`FullWaveFormExtractor` 先积分样本，再由原有 `Calibrator` 根据 CameraReadout 中的
-采样宽度和 `single_pe_area_mv_ns` 转为 PE。`LocalPeakExtractor` 默认积分峰附近
-7 个 time bin；当 `apply_correction=true` 时，它使用 ROOT 内文件级实测参考脉冲
-计算窗口包含比例并修正尾部。旧的 PE-proxy 文件保持比例 1，不做 mV 定标。
+因此 `FullWaveFormExtractor` 直接求和 R1 即得到 PE；原有 `Calibrator`、
+`ImageExtractor`、`ImageProcessor` 和 `CameraReadout` 的处理逻辑无需了解 LACT 的
+mV 单位或定标常数。`LocalPeakExtractor` 默认积分峰附近 7 个 time bin；当
+`apply_correction=true` 时，它使用 ROOT 内文件级实测参考脉冲计算窗口包含比例
+并修正尾部。旧的 PE-proxy 文件保持比例 1，不做额外定标。
 
 ## 4. 画图层级
 

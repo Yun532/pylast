@@ -168,13 +168,13 @@ print(THREE_LAYER_PATH)
     markdown(r'''
 ## Cell 4：FullWaveFormExtractor 与 LocalPeakExtractor 闭合
 
-全波形结果应与 `Σ(mV sample) × 4 ns / 84.0349557 (mV·ns/PE)` 完全一致。
-LocalPeak 使用 7 个采样点、向峰前移动 3 点，并用 ROOT 内保存的实测参考脉冲做尾部修正。
+ROOT 内的 mV 样本由 `LactEventSource` 转为 R1 的逐采样点 PE 电荷，因此全波形
+结果应与 `Σ(R1 sample)` 完全一致。LocalPeak 使用 7 个采样点、向峰前移动 3 点，
+并用 ROOT 内保存的实测参考脉冲做尾部修正。
 '''),
     code(r'''
-readout = source.subarray.tels[TELESCOPE_ID].camera.readout
 raw_waveform = np.asarray(raw_event.r1.tels[TELESCOPE_ID].waveform, dtype=float)
-direct_pe = raw_waveform.sum() / readout.sampling_rate / readout.single_pe_area_mv_ns
+direct_pe = raw_waveform.sum()
 
 local_event, local_image = run_calibrator(
     source,
@@ -189,7 +189,7 @@ local_event, local_image = run_calibrator(
 )
 
 closure = pd.DataFrame([
-    {"方法": "Direct mV integral", "总PE": direct_pe, "相对Full": 0.0},
+    {"方法": "Direct R1 PE sum", "总PE": direct_pe, "相对Full": 0.0},
     {"方法": "FullWaveFormExtractor", "总PE": full_image.sum(),
      "相对Full": (full_image.sum() - direct_pe) / direct_pe},
     {"方法": "LocalPeakExtractor corrected", "总PE": local_image.sum(),
@@ -302,7 +302,8 @@ plt.show()
 ## Cell 9：ROOT/HDF5/CSV 一致性结论
 
 报告由独立脚本逐像素、逐 fired-hit、逐波形采样比较生成。本 cell 只把最关键的误差
-和单 PE 定标常数集中展示，便于以后更换电子学模型时复用同一验收标准。
+集中展示，便于以后更换电子学模型时复用同一验收标准。mV→PE 所需定标常数
+保存在 LACT ROOT 中，由 `LactEventSource` 读取，不扩展通用 `CameraReadout` 接口。
 '''),
     code(r'''
 format_rows = []
@@ -312,7 +313,7 @@ for mode, item in report.items():
         "图像最大绝对误差": item["root_hdf5_csv_max_abs_error"],
         "波形 ROOT/HDF5 最大误差 [mV]": item.get("waveform_root_hdf5_max_abs_error_mv", np.nan),
         "波形 ROOT/CSV 最大误差 [mV]": item.get("waveform_root_csv_max_abs_error_mv", np.nan),
-        "单PE面积 [mV ns]": item.get("single_pe_area_mv_ns", np.nan),
+        "R1样本单位": "PE charge / sample",
         "直接全积分相对误差": item.get("full_waveform_direct_relative_error", np.nan),
     })
 format_table = pd.DataFrame(format_rows)

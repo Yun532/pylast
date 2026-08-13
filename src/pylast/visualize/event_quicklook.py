@@ -128,10 +128,11 @@ def plot_event_trigger_timing(
     output_path: str | PathLike[str] | None = None,
     show_lhaaso_background: bool = True,
     annotate: bool = True,
+    time_field: str = "trigger",
     wavefront_speed_m_per_ns: float = 0.29974,
     show: bool | None = None,
 ):
-    """Draw raw and plot-calculated position-corrected trigger timing."""
+    """Draw selected trigger, camera-peak, or first-p.e. timing."""
 
     if root_file is None and _looks_like_path(event):
         root_file = event
@@ -150,6 +151,7 @@ def plot_event_trigger_timing(
         image_level=image_level,
         show_lhaaso_background=show_lhaaso_background,
         annotate=annotate,
+        time_field=time_field,
         wavefront_speed_m_per_ns=wavefront_speed_m_per_ns,
         show=show,
     )

@@ -5,14 +5,81 @@ import matplotlib.pyplot as plt
 import numpy as np
 from types import SimpleNamespace
 
+import pylast.visualize.event_visualizer as event_visualizer_module
 from pylast.helper import convert_to_fov
 from pylast.visualize.event_visualizer import (
+    EventData,
     EventVisualizer,
     HillasParameters,
     TelescopeGeometry,
     _camera_to_plot_xy,
     incident_point_on_camera,
 )
+
+
+def test_peak_timing_colors_only_current_five_triggered_telescopes(monkeypatch):
+    selected = [1, 4, 8, 13, 21]
+    visualizer = EventVisualizer.__new__(EventVisualizer)
+    visualizer.tel_geoms = {
+        tel_id: TelescopeGeometry(
+            tel_id=tel_id,
+            pos_x=float(tel_id % 6) * 20.0,
+            pos_y=float(tel_id // 6) * 20.0,
+            focal_length=800.0,
+            pix_x=np.array([]),
+            pix_y=np.array([]),
+            pix_size=np.array([]),
+        )
+        for tel_id in range(29)
+    }
+    timing = {
+        tel_id: {
+            "time_first_ns": float(tel_id),
+            "time_peak_ns": float(tel_id) + 5.0,
+        }
+        for tel_id in visualizer.tel_geoms
+    }
+    visualizer.source = SimpleNamespace(
+        get_observation_timing=lambda event: timing,
+        subarray=SimpleNamespace(tel_positions={}),
+    )
+    event = SimpleNamespace(
+        event_id=93500000,
+        simulation=SimpleNamespace(triggered_tels=selected),
+    )
+    event_data = EventData(
+        event_id=93500000,
+        energy=1.0,
+        core_x=0.0,
+        core_y=0.0,
+        zenith_deg=20.0,
+        azimuth_deg=0.0,
+        x_max=400.0,
+        first_interaction_height=20000.0,
+        image_by_tel={},
+        image_sum_by_tel={tel_id: float(tel_id + 1) for tel_id in range(29)},
+        active_tels=np.arange(29, dtype=int),
+    )
+    monkeypatch.setattr(
+        event_visualizer_module,
+        "read_event_data",
+        lambda event, tel_geoms, image_level: event_data,
+    )
+
+    figure, axes = visualizer.plot_trigger_timing(
+        event,
+        image_level="dl0",
+        show_lhaaso_background=False,
+        annotate=False,
+        time_field="peak",
+        show=False,
+    )
+
+    collections = axes[0].collections
+    assert len(collections[0].get_offsets()) == 29
+    assert len(collections[1].get_offsets()) == 5
+    assert len(collections[2].get_offsets()) == 5
+    plt.close(figure)
 
 
 def test_camera_to_plot_uses_original_pylast_axis_order():

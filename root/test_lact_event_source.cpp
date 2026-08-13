@@ -124,6 +124,11 @@ void writeFixture(const std::filesystem::path& path, WaveformCase waveform_case)
     std::vector<float> image_pe = {4.25f};
     std::vector<float> image_cherenkov_pe = {5.0f};
     std::vector<float> image_time_peak_ns = {0.5f};
+    double reference_time_ns = -1.0;
+    double time_first_ns = -1.0;
+    double time_mean_ns = 0.25;
+    double time_rms_ns = 0.75;
+    double time_peak_ns = 0.5;
     double trigger_time_ns = 12.5;
     double trigger_first_time_ns = 11.5;
     double trigger_max_multiplicity_time_ns = 12.5;
@@ -138,6 +143,11 @@ void writeFixture(const std::filesystem::path& path, WaveformCase waveform_case)
     observations.Branch("image_pe", &image_pe);
     observations.Branch("image_cherenkov_pe", &image_cherenkov_pe);
     observations.Branch("image_time_peak_ns", &image_time_peak_ns);
+    observations.Branch("reference_time_ns", &reference_time_ns);
+    observations.Branch("time_first_ns", &time_first_ns);
+    observations.Branch("time_mean_ns", &time_mean_ns);
+    observations.Branch("time_rms_ns", &time_rms_ns);
+    observations.Branch("time_peak_ns", &time_peak_ns);
     observations.Branch("trigger_time_ns", &trigger_time_ns);
     observations.Branch("trigger_first_time_ns", &trigger_first_time_ns);
     observations.Branch("trigger_max_multiplicity_time_ns",
@@ -251,6 +261,16 @@ int main()
                 "native trigger timing values");
         require(complete_source.get_trigger_timing(101).empty(),
                 "non-triggered event must not expose trigger timing");
+        const auto observation_timing =
+            complete_source.get_observation_timing(100);
+        require(observation_timing.size() == 1 &&
+                    std::abs(observation_timing.at(0).time_first_ns + 1.0) <
+                        1.0e-12 &&
+                    std::abs(observation_timing.at(0).time_peak_ns - 0.5) <
+                        1.0e-12 &&
+                    std::abs(observation_timing.at(0).geometric_delay_ns + 2.0) <
+                        1.0e-12,
+                "native observation timing values");
         require(complete_source.subarray.has_value(),
                 "LACT subarray must be available");
         const auto& geometry = complete_source.subarray->tels.at(0)
@@ -288,15 +308,15 @@ int main()
         LactEventSource measured_source(measured.string());
         const auto& readout = measured_source.subarray->tels.at(0)
                                   .camera_description.camera_readout;
-        require(readout.waveform_sample_unit == "mV",
-                "measured waveform unit must reach CameraReadout");
-        require(std::abs(readout.single_pe_area_mv_ns - 16.0) < 1.0e-12,
-                "single-p.e. area must reach CameraReadout");
         require(readout.reference_pulse_shape.rows() == 1 &&
                     readout.reference_pulse_shape.cols() == 6,
                 "measured reference pulse must reach CameraReadout");
 
         auto measured_full_event = measured_source.get_event(0);
+        require(std::abs(
+                    measured_full_event.r1->tels.at(0)->waveform.sum() - 1.0) <
+                    1.0e-12,
+                "source must normalize measured mV samples to p.e. charge");
         Calibrator full_calibrator(
             *measured_source.subarray,
             std::string(

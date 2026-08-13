@@ -56,10 +56,6 @@ void ImageProcessor::registerParams() {
   registerParam<double>("cut_radius", 0.0, cut_radius);
   registerParam<int>("trigger_pixels", 4, fake_trigger_pixels);
   registerParam<double>("trigger_pe", 8, fake_trigger_pe);
-  registerParam<bool>("recompute_trigger", true, recompute_trigger);
-  registerParam<int>("trigger_min_pixels", 5, fake_trigger_min_pixels);
-  registerParam<double>("trigger_min_true_image_pe", 10.0,
-                        fake_trigger_min_true_image_pe);
   registerParam<bool>("use_random_gaussian", false, use_random_gaussian);
   registerParam<double>("random_gaussian_level", 0, random_gaussian_level);
   registerParam<bool>("only_use_largerst_island", false,
@@ -440,24 +436,22 @@ void ImageProcessor::handle_simulation_level(ArrayEvent &event) {
     spdlog::warn("Simulation data is not available in the event");
     return;
   }
-  const bool add_poisson_noise = poisson_noise > 0;
-  const bool should_recompute_trigger = recompute_trigger && add_poisson_noise;
-  if (should_recompute_trigger) {
+  const bool recompute_trigger = poisson_noise > 0;
+  if (recompute_trigger) {
     event.simulation->triggered_tels.clear();
   }
   for (auto &[tel_id, simulated_camera] : event.simulation->tels) {
     if (simulated_camera->true_image.size() > 0) {
-      if (add_poisson_noise) {
+      if (recompute_trigger) {
+        if (simulated_camera->true_image_sum < 10) {
+          continue;
+        }
         auto noise_image =
             adding_poisson_noise(simulated_camera->true_image, poisson_noise);
-        if (should_recompute_trigger &&
-            simulated_camera->true_image_sum >=
-                fake_trigger_min_true_image_pe) {
-          if (fake_trigger(
-                  subarray.tels.at(tel_id).camera_description.camera_geometry,
-                  noise_image, fake_trigger_pe, fake_trigger_pixels)) {
-            event.simulation->triggered_tels.push_back(tel_id);
-          }
+        if (fake_trigger(
+                subarray.tels.at(tel_id).camera_description.camera_geometry,
+                noise_image, fake_trigger_pe, fake_trigger_pixels)) {
+          event.simulation->triggered_tels.push_back(tel_id);
         }
         Eigen::VectorXd fake_image = noise_image.array() - poisson_noise;
         if (use_random_gaussian) {
@@ -562,7 +556,7 @@ bool ImageProcessor::fake_trigger(const CameraGeometry &camera_geometry,
   // Check if the image has enough pixels above the threshold
   Eigen::Vector<bool, -1> above_threshold_pixels = image.array() > threshold;
   int num_pixels_above_threshold = above_threshold_pixels.count();
-  if (num_pixels_above_threshold < fake_trigger_min_pixels) {
+  if (num_pixels_above_threshold < 5) {
     return false; // Not enough pixels above the threshold
   }
   Eigen::VectorXi pixels_above_in_group =

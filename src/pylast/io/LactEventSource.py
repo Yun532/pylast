@@ -52,6 +52,8 @@ class LactEventSource:
         self._triggered_tels_by_event_id = {}
         self._trigger_timing_by_event_id = {}
         self._trigger_timing_loaded = False
+        self._observation_timing_by_event_id = {}
+        self._observation_timing_loaded = False
         self._waveform_timing_loaded = False
         self._waveform_time_centers_ns = ()
         self._waveform_time_reference = ""
@@ -193,6 +195,57 @@ class LactEventSource:
                 }
         except Exception:
             self._trigger_timing_by_event_id.clear()
+        finally:
+            if root_file:
+                root_file.Close()
+
+    def _load_root_observation_timing(self):
+        """Load timing summaries for every saved event/telescope image."""
+
+        if self._observation_timing_loaded:
+            return
+        self._observation_timing_loaded = True
+        filename = self._input_filename
+        if filename is None or not str(filename).lower().endswith(".root"):
+            return
+        root_file = None
+        try:
+            import ROOT
+
+            root_file = ROOT.TFile.Open(str(filename))
+            if not root_file or root_file.IsZombie():
+                return
+            tree = root_file.Get("observations")
+            required = ("event_id", "telescope_id")
+            if tree is None or any(
+                tree.GetBranch(name) is None for name in required
+            ):
+                return
+            fields = (
+                "reference_time_ns",
+                "time_first_ns",
+                "time_mean_ns",
+                "time_rms_ns",
+                "time_peak_ns",
+                "geometric_delay_ns",
+            )
+            available = {
+                name for name in fields if tree.GetBranch(name) is not None
+            }
+            for entry in range(tree.GetEntries()):
+                tree.GetEntry(entry)
+                values = {
+                    name: (
+                        float(getattr(tree, name))
+                        if name in available else float("nan")
+                    )
+                    for name in fields
+                }
+                self._observation_timing_by_event_id.setdefault(
+                    int(tree.event_id), {}
+                )[int(tree.telescope_id)] = values
+        except Exception:
+            self._observation_timing_by_event_id.clear()
         finally:
             if root_file:
                 root_file.Close()
@@ -374,6 +427,26 @@ class LactEventSource:
         return {
             telescope_id: dict(values)
             for telescope_id, values in self._trigger_timing_by_event_id.get(
+                event_id, {}
+            ).items()
+        }
+
+    def get_observation_timing(self, event_or_id):
+        """Return timing summaries for every saved telescope in one event."""
+
+        event_id = _event_id(event_or_id)
+        if event_id is None:
+            return {}
+        native_getter = getattr(self._source, "get_observation_timing", None)
+        if native_getter is not None:
+            return {
+                int(telescope_id): dict(values)
+                for telescope_id, values in native_getter(event_id).items()
+            }
+        self._load_root_observation_timing()
+        return {
+            telescope_id: dict(values)
+            for telescope_id, values in self._observation_timing_by_event_id.get(
                 event_id, {}
             ).items()
         }

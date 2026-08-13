@@ -288,10 +288,6 @@ void LactEventSource::load_telescopes()
     readout.sampling_rate = waveform_config.time_bin_width_ns > 0.0
         ? 1.0 / waveform_config.time_bin_width_ns
         : 0.0;
-    readout.waveform_sample_unit = waveform_config.sample_unit;
-    readout.single_pe_area_mv_ns = waveform_config.single_pe_area_mv_ns;
-    readout.template_time_reference =
-        waveform_config.template_time_reference;
     if (!waveform_config.reference_pulse_amplitude.empty()) {
         readout.reference_pulse_shape.resize(
             1, static_cast<int>(
@@ -376,6 +372,16 @@ void LactEventSource::load_observations()
                              &image_cherenkov_pe);
     }
     set_branch_if_exists(tree, "image_time_peak_ns", &peak_time);
+    set_branch_if_exists(tree, "reference_time_ns",
+                         &row.observation_timing.reference_time_ns);
+    set_branch_if_exists(tree, "time_first_ns",
+                         &row.observation_timing.time_first_ns);
+    set_branch_if_exists(tree, "time_mean_ns",
+                         &row.observation_timing.time_mean_ns);
+    set_branch_if_exists(tree, "time_rms_ns",
+                         &row.observation_timing.time_rms_ns);
+    set_branch_if_exists(tree, "time_peak_ns",
+                         &row.observation_timing.time_peak_ns);
     set_branch_if_exists(tree, "trigger_time_ns",
                          &row.trigger_timing.trigger_time_ns);
     has_trigger_first_time =
@@ -405,6 +411,8 @@ void LactEventSource::load_observations()
         row.image_cherenkov_pe =
             image_cherenkov_pe ? *image_cherenkov_pe : std::vector<float>{};
         row.image_time_peak_ns = peak_time ? *peak_time : std::vector<float>{};
+        row.observation_timing.geometric_delay_ns =
+            row.trigger_timing.geometric_delay_ns;
         row.trigger_timing.trigger_diagnostics_available =
             has_trigger_first_time && has_trigger_max_multiplicity_time;
         const auto key = std::make_pair(row.event_id, row.telescope_id);
@@ -446,6 +454,21 @@ LactEventSource::get_trigger_timing(long long event_id) const
                 timing.trigger_time_ns + timing.geometric_delay_ns;
         }
         result.emplace(obs.telescope_id, timing);
+    }
+    return result;
+}
+
+std::map<int, LactEventSource::ObservationTimingRow>
+LactEventSource::get_observation_timing(long long event_id) const
+{
+    std::map<int, ObservationTimingRow> result;
+    const auto event_it = observation_indices_by_event.find(event_id);
+    if (event_it == observation_indices_by_event.end()) {
+        return result;
+    }
+    for (const auto row_index : event_it->second) {
+        const auto& obs = observations.at(row_index);
+        result.emplace(obs.telescope_id, obs.observation_timing);
     }
     return result;
 }
@@ -744,10 +767,27 @@ LactEventSource::dense_waveform(const ObservationRow& obs) const
     }
 
     const auto& wf = wf_it->second;
+    double sample_to_pe = 1.0;
+    if (waveform_config.sample_unit == "mV") {
+        sample_to_pe = waveform_config.time_bin_width_ns /
+            waveform_config.single_pe_area_mv_ns;
+    } else if (!(waveform_config.sample_unit.empty() ||
+                 waveform_config.sample_unit == "pe" ||
+                 waveform_config.sample_unit == "pe_per_sample" ||
+                 waveform_config.sample_unit == "fired_pe_per_sample" ||
+                 waveform_config.sample_unit == "pe_charge_per_sample")) {
+        throw std::runtime_error(
+            "unsupported LACT ROOT waveform sample unit: " +
+            waveform_config.sample_unit);
+    }
     for (std::size_t i = 0; i < wf.pixel_id.size(); ++i) {
         const int pix = pixel_index(wf.pixel_id[i]);
         const int bin = static_cast<int>(wf.time_bin[i]);
-        waveform(pix, bin) += static_cast<double>(wf.sample_value[i]);
+        // R1 follows the native pyLAST contract: every sample contains its
+        // p.e.-charge contribution. Generic Calibrator/ImageExtractor code
+        // can therefore remain identical for LACT and simtelarray sources.
+        waveform(pix, bin) +=
+            static_cast<double>(wf.sample_value[i]) * sample_to_pe;
     }
     return waveform;
 }

@@ -1128,46 +1128,86 @@ class EventVisualizer:
         image_level: str = "dl0",
         show_lhaaso_background: bool = True,
         annotate: bool = True,
+        time_field: str = "trigger",
         wavefront_speed_m_per_ns: float = 0.29974,
         show: bool = True,
     ):
-        """Plot raw and position-corrected trigger delays on one array map.
+        """Plot raw and position-corrected selected-camera delays.
 
-        The color scale follows :meth:`plot_event_cores` and encodes total
-        integrated p.e. Labels show the raw first-trigger delay, the
-        planar-wavefront position delay, and the residual after subtracting
-        that position term. The position correction is calculated here from
-        event truth and telescope geometry; stored simulation corrections are
-        ignored. This method requires the LACT ROOT adapter's
-        ``get_trigger_timing`` interface.
+        ``trigger`` uses the LACT_sim trigger list and trigger time. ``peak``
+        and ``first`` use the current pyLAST trigger list with the camera peak
+        or first-photoelectron time. All array positions remain visible, while
+        only selected telescopes are colored and annotated. The color scale
+        encodes integrated p.e. and the position correction is recomputed from
+        event truth and telescope geometry.
         """
 
-        get_timing = getattr(self.source, "get_trigger_timing", None)
+        time_field = str(time_field).strip().lower()
+        aliases = {
+            "trigger": ("trigger_first_time_ns", "trigger"),
+            "peak": ("time_peak_ns", "peak"),
+            "first": ("time_first_ns", "first"),
+        }
+        if time_field not in aliases:
+            raise ValueError("time_field must be trigger, peak, or first")
+        value_key, timing_label = aliases[time_field]
+        getter_name = (
+            "get_trigger_timing"
+            if time_field == "trigger" else "get_observation_timing"
+        )
+        get_timing = getattr(self.source, getter_name, None)
         if get_timing is None:
             raise ValueError(
-                "trigger timing plots require a LACT ROOT event source"
+                f"{time_field} timing plots require a LACT ROOT event source"
             )
         timing = get_timing(event)
-        tel_ids = sorted(
-            telescope_id
-            for telescope_id in timing
+        if time_field == "trigger":
+            selected_tel_ids = set(timing)
+        else:
+            simulation = getattr(event, "simulation", None)
+            current_triggered = getattr(simulation, "triggered_tels", None)
+            selected_tel_ids = (
+                set(int(telescope_id) for telescope_id in current_triggered)
+                if current_triggered is not None else set()
+            )
+            if not selected_tel_ids:
+                selected_tel_ids = set(
+                    int(telescope_id) for telescope_id in
+                    _triggered_tel_ids(event, source=self.source)
+                )
+        selected_tel_ids = {
+            telescope_id for telescope_id in selected_tel_ids
             if telescope_id in self.tel_geoms
+        }
+        missing_timing = sorted(
+            telescope_id for telescope_id in selected_tel_ids
+            if telescope_id not in timing
+            or not np.isfinite(timing[telescope_id].get(value_key, np.nan))
         )
+        if missing_timing:
+            display_ids = ", ".join(
+                f"T{telescope_id + 1}" for telescope_id in missing_timing
+            )
+            raise ValueError(
+                f"selected telescopes lack finite {time_field} timing: "
+                f"{display_ids}; regenerate the LACT ROOT file with "
+                "waveform.time_reference=image_first"
+            )
+        tel_ids = sorted(selected_tel_ids)
         if not tel_ids:
-            raise ValueError("no triggered telescope timing is available")
+            raise ValueError(
+                f"no {time_field} timing is available for the selected telescopes"
+            )
 
         first_times = np.asarray(
             [
-                timing[telescope_id].get(
-                    "trigger_first_time_ns",
-                    timing[telescope_id]["trigger_time_ns"],
-                )
+                timing[telescope_id].get(value_key, np.nan)
                 for telescope_id in tel_ids
             ],
             dtype=float,
         )
         if not np.all(np.isfinite(first_times)):
-            raise ValueError("first LACT trigger times must be finite")
+            raise ValueError(f"selected LACT {time_field} times must be finite")
 
         first_relative = first_times - float(np.min(first_times))
         first_span = float(np.ptp(first_times))
@@ -1331,7 +1371,7 @@ class EventVisualizer:
                     label = (
                         f"T{telescope_id + 1}\n"
                         f"{pe[index]:.0f} pe\n"
-                        f"raw Δt {relative_times[index]:.1f} ns\n"
+                        f"{timing_label} Δt {relative_times[index]:.1f} ns\n"
                         f"pos Δt {position_relative[index]:.1f} ns\n"
                         f"corr Δt {corrected_relative[index]:.1f} ns"
                     )
@@ -1382,7 +1422,7 @@ class EventVisualizer:
                 float(np.max(limit_north)) + array_pad,
             )
             ax.set_title(
-                f"LACT trigger timing event_id={data.event_id} | "
+                f"LACT {timing_label} timing event_id={data.event_id} | "
                 f"raw {first_span:.1f} ns → corrected {corrected_span:.1f} ns"
             )
             ax.set_xlabel("East (m)")

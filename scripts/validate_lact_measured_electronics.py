@@ -75,9 +75,6 @@ def main() -> None:
     require(len(source) == 1, "measured ROOT must contain exactly one event")
     require(19 in source.subarray.tels, "telescope 19 is missing from subarray")
     readout = source.subarray.tels[19].camera.readout
-    require(readout.waveform_sample_unit == "mV", "waveform unit did not reach CameraReadout")
-    require(np.isclose(readout.single_pe_area_mv_ns, 84.03495572475859,
-                       rtol=0, atol=1e-10), "single-p.e. area differs")
     require(readout.reference_pulse_shape.shape == (1, 1101),
             "measured reference pulse shape differs")
 
@@ -89,11 +86,7 @@ def main() -> None:
     )
     raw_waveform = np.asarray(raw_event.r1.tels[19].waveform, dtype=np.float64)
     require(raw_waveform.shape == (1664, 65), f"unexpected waveform shape {raw_waveform.shape}")
-    direct_full_pe = float(
-        raw_waveform.sum()
-        / readout.sampling_rate
-        / readout.single_pe_area_mv_ns
-    )
+    direct_full_pe = float(raw_waveform.sum())
 
     full_event = source[0]
     full_calibrator = Calibrator(
@@ -103,7 +96,7 @@ def main() -> None:
     full_calibrator(full_event)
     full_image = image(full_event, "dl0", 19)
     require(np.allclose(full_image.sum(), direct_full_pe, rtol=0, atol=1e-8),
-            "FullWaveFormExtractor does not close to direct mV integration")
+            "FullWaveFormExtractor does not close to normalized R1 p.e. charge")
 
     local_event = source[0]
     local_config = {
@@ -124,8 +117,7 @@ def main() -> None:
     report = {
         "event_id": int(raw_event.event_id),
         "telescope_id": 19,
-        "waveform_sample_unit": readout.waveform_sample_unit,
-        "single_pe_area_mv_ns": float(readout.single_pe_area_mv_ns),
+        "r1_sample_unit": "pe_charge_per_sample",
         "reference_pulse_points": int(readout.reference_pulse_shape.shape[1]),
         "waveform_shape": list(raw_waveform.shape),
         "true_cherenkov_image_sum_pe": float(true_image.sum()),

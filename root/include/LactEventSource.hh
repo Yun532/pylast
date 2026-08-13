@@ -37,6 +37,15 @@ public:
         bool trigger_diagnostics_available = false;
     };
 
+    struct ObservationTimingRow {
+        double reference_time_ns = std::numeric_limits<double>::quiet_NaN();
+        double time_first_ns = std::numeric_limits<double>::quiet_NaN();
+        double time_mean_ns = std::numeric_limits<double>::quiet_NaN();
+        double time_rms_ns = std::numeric_limits<double>::quiet_NaN();
+        double time_peak_ns = std::numeric_limits<double>::quiet_NaN();
+        double geometric_delay_ns = std::numeric_limits<double>::quiet_NaN();
+    };
+
     LactEventSource(const std::string& filename,
                     int64_t max_events = -1,
                     std::vector<int> subarray = {},
@@ -61,6 +70,8 @@ public:
     }
     std::size_t event_count() const { return event_order.size(); }
     std::map<int, TriggerTimingRow> get_trigger_timing(long long event_id) const;
+    std::map<int, ObservationTimingRow>
+    get_observation_timing(long long event_id) const;
 
 private:
     struct CameraPixelRow {
@@ -113,6 +124,7 @@ private:
         std::vector<float> image_pe;
         std::vector<float> image_cherenkov_pe;
         std::vector<float> image_time_peak_ns;
+        ObservationTimingRow observation_timing;
         TriggerTimingRow trigger_timing;
     };
 

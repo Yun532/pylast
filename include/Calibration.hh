@@ -58,5 +58,4 @@ class Calibrator: public Configurable
     private:
         const SubarrayDescription& subarray;
         std::string image_extractor_type;
-        double waveform_sum_to_pe_scale(int tel_id) const;
 };
