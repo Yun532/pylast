@@ -68,7 +68,6 @@ def plot_event_cores(
     image_level: str = "dl0",
     output_path: str | PathLike[str] | None = None,
     include_non_triggered: bool = False,
-    show_unselected_telescopes: bool = True,
     show: bool | None = None,
 ):
     """Draw the LACT array/core view from an already loaded event.
@@ -90,7 +89,6 @@ def plot_event_cores(
             image_level=image_level,
             output_path=output_path,
             include_non_triggered=include_non_triggered,
-            show_unselected_telescopes=show_unselected_telescopes,
             show=show,
         )
     if event is None:
@@ -104,7 +102,6 @@ def plot_event_cores(
         output_path=str(output_path) if output_path is not None else None,
         image_level=image_level,
         include_non_triggered=include_non_triggered,
-        show_unselected_telescopes=show_unselected_telescopes,
         show=show,
     )
     return {
@@ -652,7 +649,6 @@ def plot_root_event_cores(
     image_level: str = "dl0",
     output_path: str | PathLike[str] | None = None,
     include_non_triggered: bool = False,
-    show_unselected_telescopes: bool = True,
     show: bool | None = None,
 ):
     """Read one LACT ROOT event and draw the array/core view."""
@@ -665,7 +661,6 @@ def plot_root_event_cores(
         image_level=image_level,
         output_path=output_path,
         include_non_triggered=include_non_triggered,
-        show_unselected_telescopes=show_unselected_telescopes,
         show=show,
     )
     result["source"] = source
