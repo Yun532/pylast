@@ -7,6 +7,7 @@ from types import SimpleNamespace
 
 import pylast.visualize.event_visualizer as event_visualizer_module
 from pylast.helper import convert_to_fov
+from pylast.visualize.event_quicklook import hillas_parameter_rows
 from pylast.visualize.event_visualizer import (
     EventData,
     EventVisualizer,
@@ -20,6 +21,13 @@ from pylast.visualize.event_visualizer import (
 def test_peak_timing_colors_only_current_five_triggered_telescopes(monkeypatch):
     selected = [1, 4, 8, 13, 21]
     visualizer = EventVisualizer.__new__(EventVisualizer)
+    visualizer._verts_cache = {}
+    visualizer._extent_cache = {}
+    visualizer._transparent_plasma = None
+    visualizer.enable_secondary_axes = False
+    visualizer.outline_pixels = True
+    visualizer.edge_color = (0, 0, 0, 0.5)
+    visualizer.edge_linewidth = 0.2
     visualizer.tel_geoms = {
         tel_id: TelescopeGeometry(
             tel_id=tel_id,
@@ -79,6 +87,84 @@ def test_peak_timing_colors_only_current_five_triggered_telescopes(monkeypatch):
     assert len(collections[0].get_offsets()) == 29
     assert len(collections[1].get_offsets()) == 5
     assert len(collections[2].get_offsets()) == 5
+    plt.close(figure)
+
+
+def test_fake_clean_plot_excludes_triggered_camera_rejected_by_cleaning():
+    visualizer = EventVisualizer.__new__(EventVisualizer)
+    visualizer._verts_cache = {}
+    visualizer._extent_cache = {}
+    visualizer._transparent_plasma = None
+    visualizer.enable_secondary_axes = False
+    visualizer.outline_pixels = True
+    visualizer.edge_color = (0, 0, 0, 0.5)
+    visualizer.edge_linewidth = 0.2
+    visualizer.tel_geoms = {
+        tel_id: TelescopeGeometry(
+            tel_id=tel_id,
+            pos_x=float(tel_id),
+            pos_y=0.0,
+            focal_length=800.0,
+            pix_x=np.array([0.0, 1.0]),
+            pix_y=np.array([0.0, 0.0]),
+            pix_size=np.array([1.0, 1.0]),
+        )
+        for tel_id in (0, 1)
+    }
+    valid_hillas = SimpleNamespace(
+        length=0.01, width=0.005, psi=0.0, x=0.0, y=0.0
+    )
+    cameras = {
+        0: SimpleNamespace(
+            fake_image=np.array([60.0, 0.0]),
+            fake_image_mask=np.array([True, False]),
+            image_parameters=SimpleNamespace(hillas=valid_hillas),
+        ),
+        1: SimpleNamespace(
+            fake_image=np.array([80.0, 20.0]),
+            fake_image_mask=np.array([], dtype=bool),
+            image_parameters=SimpleNamespace(
+                hillas=SimpleNamespace(
+                    length=0.0, width=0.0, psi=0.0, x=0.0, y=0.0
+                )
+            ),
+        ),
+    }
+    event = SimpleNamespace(
+        event_id=1,
+        simulation=SimpleNamespace(
+            tels=cameras,
+            triggered_tels=[0, 1],
+            shower=SimpleNamespace(
+                energy=1.0,
+                core_x=0.0,
+                core_y=0.0,
+                alt=np.pi / 2,
+                az=0.0,
+                x_max=400.0,
+                h_first_int=20000.0,
+            ),
+        ),
+    )
+    visualizer.source = SimpleNamespace(
+        get_triggered_tels=lambda event: [0, 1]
+    )
+
+    rows = hillas_parameter_rows(
+        event, image_level="simulation_fake_clean"
+    )
+    assert [row["tel_id"] for row in rows] == [0]
+
+    figure, axes = visualizer.plot_event(
+        event,
+        image_level="simulation_fake_clean",
+        show_hillas=True,
+        include_non_triggered=False,
+        show=False,
+    )
+
+    visible_titles = [axis.texts[0].get_text() for axis in axes[1:] if axis.texts]
+    assert visible_titles == ["Telescope 1"]
     plt.close(figure)
 
 

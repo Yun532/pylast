@@ -827,9 +827,18 @@ def hillas_parameter_rows(event, image_level: str = "dl1"):
         if image_level in {"simulation_fake", "simulation_fake_clean"}:
             image = np.asarray(getattr(tel, "fake_image", []), dtype=float)
             mask = np.asarray(
-                getattr(tel, "fake_image_mask", np.ones_like(image)),
+                getattr(tel, "fake_image_mask", []),
                 dtype=bool,
             )
+            if image_level == "simulation_fake_clean" and (
+                image.size == 0
+                or mask.size != image.size
+                or not np.any(mask)
+                or not np.any(image * mask)
+            ):
+                continue
+            if image_level == "simulation_fake" and mask.size != image.size:
+                mask = np.ones_like(image, dtype=bool)
         else:
             image = np.asarray(getattr(tel, "image", []), dtype=float)
             mask = np.asarray(getattr(tel, "mask", np.ones_like(image)), dtype=bool)

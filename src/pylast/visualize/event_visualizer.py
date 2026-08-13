@@ -366,6 +366,15 @@ def _selected_image_tel_ids(
         return sorted(int(tel_id) for tel_id in data.active_tels)
 
     selected = _triggered_tel_ids(event, source=source)
+    if image_level in {"simulation_fake_clean", "dl1"}:
+        # A camera may trigger but fail image cleaning.  Clean-image plots must
+        # only retain telescopes for which the selected clean level actually
+        # contains a non-empty image.
+        active = set(int(tel_id) for tel_id in data.active_tels)
+        selected = np.asarray(
+            [int(tel_id) for tel_id in selected if int(tel_id) in active],
+            dtype=int,
+        )
     if selected.size == 0 and image_level in {
         "simulation",
         "simulation_fake",
@@ -2377,6 +2386,18 @@ class EventVisualizer:
             for tel_id, camera in tels.items():
                 if tel_id not in self.tel_geoms:
                     continue
+                if image_level == "simulation_fake_clean":
+                    image = _to_numpy(getattr(camera, "fake_image", []))
+                    mask = _to_numpy(
+                        getattr(camera, "fake_image_mask", []), dtype=bool
+                    )
+                    if (
+                        image.size == 0
+                        or mask.size != image.size
+                        or not np.any(mask)
+                        or not np.any(image * mask)
+                    ):
+                        continue
                 image_parameters = getattr(camera, "image_parameters", None)
                 params = getattr(image_parameters, "hillas", None)
                 if params is None:
