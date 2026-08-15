@@ -11,10 +11,13 @@
 
 #pragma once
 
+#include <array>
+#include <string>
+#include <unordered_map>
+#include <vector>
 
 #include "CameraDescription.hh"
 #include "OpticsDescription.hh"
-#include <unordered_map>
 using telescope_id_t = int;
 class TelescopeDescription
 {

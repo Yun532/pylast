@@ -10,6 +10,8 @@ target_link_libraries(test_camera_geometry PRIVATE basic_event)
 
 add_executable(test_image_processor test_image_processor.cpp)
 target_link_libraries(test_image_processor PRIVATE image_processor)
+add_executable(test_image_extractor test_image_extractor.cpp)
+target_link_libraries(test_image_extractor PRIVATE calibrator basic_event)
 add_executable(test_muparser_query test_muparser_query.cpp)
 target_link_libraries(test_muparser_query query)
 
@@ -49,6 +51,8 @@ add_test(NAME test_configurable
     COMMAND test_configurable)
 add_test(NAME test_image_processor
     COMMAND test_image_processor)
+add_test(NAME test_image_extractor
+    COMMAND test_image_extractor)
 add_test(NAME test_interpolation
     COMMAND test_interpolation)
 add_test(NAME test_coordinates

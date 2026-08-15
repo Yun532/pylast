@@ -441,13 +441,20 @@ void ImageProcessor::handle_simulation_level(ArrayEvent &event) {
     event.simulation->triggered_tels.clear();
   }
   for (auto &[tel_id, simulated_camera] : event.simulation->tels) {
-    if (simulated_camera->true_image.size() > 0) {
+    Eigen::VectorXd signal_image;
+    if (simulated_camera->true_image_pe.size() > 0) {
+      signal_image = simulated_camera->true_image_pe;
+    } else {
+      signal_image = simulated_camera->true_image.cast<double>();
+    }
+    if (signal_image.size() > 0) {
       if (recompute_trigger) {
-        if (simulated_camera->true_image_sum < 10) {
+        const double signal_sum = signal_image.sum();
+        if (signal_sum < 10.0) {
           continue;
         }
         auto noise_image =
-            adding_poisson_noise(simulated_camera->true_image, poisson_noise);
+            adding_poisson_noise(signal_image, poisson_noise);
         if (fake_trigger(
                 subarray.tels.at(tel_id).camera_description.camera_geometry,
                 noise_image, fake_trigger_pe, fake_trigger_pixels)) {
@@ -465,8 +472,7 @@ void ImageProcessor::handle_simulation_level(ArrayEvent &event) {
         fake_image = fake_image.array().min(8000);
         simulated_camera->fake_image = std::move(fake_image);
       } else {
-        simulated_camera->fake_image =
-            simulated_camera->true_image.cast<double>();
+        simulated_camera->fake_image = std::move(signal_image);
       }
     }
   }
@@ -539,8 +545,8 @@ void ImageProcessor::handle_simulation_level(ArrayEvent &event) {
     simulated_camera->image_parameters.intensity = intensity_parameter;
   }
 }
-Eigen::VectorXd ImageProcessor::adding_poisson_noise(Eigen::VectorXi true_image,
-                                                     double poisson_noise) {
+Eigen::VectorXd ImageProcessor::adding_poisson_noise(
+    const Eigen::VectorXd& true_image, double poisson_noise) {
   std::poisson_distribution<int> poisson_dist(poisson_noise);
   Eigen::VectorXd noisy_image(true_image.size());
   for (int i = 0; i < true_image.size(); ++i) {

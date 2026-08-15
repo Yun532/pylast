@@ -304,6 +304,8 @@ void RootWriter::write_simulated_camera(const ArrayEvent &event,
     if (write_image) {
       sim_tree->Branch("true_image",
                        &helper.root_simulation_camera->true_image);
+      sim_tree->Branch("true_image_pe",
+                       &helper.root_simulation_camera->true_image_pe);
       sim_tree->Branch("fake_image",
                        &helper.root_simulation_camera->fake_image);
       sim_tree->Branch("fake_image_mask",

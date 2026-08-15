@@ -10,25 +10,26 @@
  */
 
 #pragma once
+#include <limits>
 #include <vector>
 class ReconstructedGeometry
 {
     public:
-        bool is_valid;
-        double alt;
-        double alt_uncertainty;
-        double az;
-        double az_uncertainty;
-        double direction_error;
-        double core_x;
-        double core_y;
-        double core_pos_error;
-        double tilted_core_x;
-        double tilted_core_y;
-        double tilted_core_uncertainty_x;
-        double tilted_core_uncertainty_y;
-        double hmax;
-        double xmax;
+        bool is_valid = false;
+        double alt = std::numeric_limits<double>::quiet_NaN();
+        double alt_uncertainty = std::numeric_limits<double>::quiet_NaN();
+        double az = std::numeric_limits<double>::quiet_NaN();
+        double az_uncertainty = std::numeric_limits<double>::quiet_NaN();
+        double direction_error = std::numeric_limits<double>::quiet_NaN();
+        double core_x = std::numeric_limits<double>::quiet_NaN();
+        double core_y = std::numeric_limits<double>::quiet_NaN();
+        double core_pos_error = std::numeric_limits<double>::quiet_NaN();
+        double tilted_core_x = std::numeric_limits<double>::quiet_NaN();
+        double tilted_core_y = std::numeric_limits<double>::quiet_NaN();
+        double tilted_core_uncertainty_x = std::numeric_limits<double>::quiet_NaN();
+        double tilted_core_uncertainty_y = std::numeric_limits<double>::quiet_NaN();
+        double hmax = std::numeric_limits<double>::quiet_NaN();
+        double xmax = std::numeric_limits<double>::quiet_NaN();
         std::vector<int> telescopes;
         
 };

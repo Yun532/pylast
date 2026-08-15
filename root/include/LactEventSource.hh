@@ -102,6 +102,10 @@ private:
         long long event_id = 0;
         int shower_event_id = 0;
         int array_id = 0;
+        double array_time_offset_ns =
+            std::numeric_limits<double>::quiet_NaN();
+        double area_weight_m2 = std::numeric_limits<double>::quiet_NaN();
+        bool has_explicit_area_weight = false;
         int run_id = 0;
         int primary_type = 0;
         double energy_gev = 0.0;
@@ -120,6 +124,8 @@ private:
         int telescope_id = 0;
         bool triggered = false;
         int n_pixels_camera = 0;
+        double impact_parameter_m =
+            std::numeric_limits<double>::quiet_NaN();
         std::vector<int> pixel_id;
         std::vector<float> image_pe;
         std::vector<float> image_cherenkov_pe;

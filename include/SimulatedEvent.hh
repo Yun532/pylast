@@ -13,6 +13,7 @@
 
 #include "SimulatedShower.hh"
 #include "SimulatedCamera.hh"
+#include <limits>
 #include <unordered_map>
 #include <BaseTelContainer.hh>
 
@@ -25,6 +26,13 @@ public:
      * 
      */
     SimulatedShower shower;
+
+    int shower_event_id = 0;
+    int array_id = 0;
+    double array_time_offset_ns =
+        std::numeric_limits<double>::quiet_NaN();
+    double area_weight_m2 = std::numeric_limits<double>::quiet_NaN();
+    bool has_explicit_area_weight = false;
 
     std::vector<int> triggered_tels;
 

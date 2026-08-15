@@ -16,14 +16,16 @@
 class SimulatedShowerArray {
 public:
     SimulatedShowerArray(size_t initial_size = 0) {
-        resize(initial_size);
+        reserve(initial_size);
     }
     SimulatedShowerArray(const SimulatedShowerArray& other) = delete;
     SimulatedShowerArray& operator=(const SimulatedShowerArray& other) = delete;
     SimulatedShowerArray(SimulatedShowerArray&& other) noexcept = default;
     SimulatedShowerArray& operator=(SimulatedShowerArray&& other) noexcept = default;
     ~SimulatedShowerArray() = default;
-    void resize(size_t new_size) {
+    // Reserves capacity only; the arrays stay empty until push_back. The
+    // old name `resize` promised the opposite of what it did.
+    void reserve(size_t new_size) {
         energies.reserve(new_size);
         alts.reserve(new_size);
         azs.reserve(new_size);

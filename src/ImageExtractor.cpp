@@ -1,9 +1,10 @@
 #include "ImageExtractor.hh"
 #include <iostream>
+#include <limits>
 ImageExtractor::ImageExtractor(const SubarrayDescription& subarray):
     subarray(subarray)
 {
-    for(auto [tel_id, tel_config]: subarray.tels)
+    for(const auto& [tel_id, tel_config]: subarray.tels)
     {
         sampling_rate_ghz[tel_id] = tel_config.camera_description.camera_readout.sampling_rate;
     }
@@ -104,7 +105,7 @@ std::pair<Eigen::VectorXd, Eigen::VectorXd>  extract_around_peak(const Eigen::Ma
         if(time_den > 0)
             peak_time(ipix) = time_sum / time_den / sampling_rate_ghz;
         else
-            peak_time(ipix) = peak_index(ipix) / sampling_rate_ghz; // Fallback to peak index if no signal
+            peak_time(ipix) = std::numeric_limits<double>::quiet_NaN();
     }
 
     return std::make_pair(charge, peak_time);
