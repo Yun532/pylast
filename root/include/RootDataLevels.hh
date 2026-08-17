@@ -374,6 +374,7 @@ class RootSimulatedCamera: public NewRootDataLevels<SimulatedCamera>
 {
     public:
         RVecI true_image;
+        RVecD true_image_pe;
         RVecD fake_image;
         RVecB fake_image_mask; 
         ImageParameters fake_image_parameters;
@@ -381,7 +382,11 @@ class RootSimulatedCamera: public NewRootDataLevels<SimulatedCamera>
         RootSimulatedCamera& operator=(SimulatedCamera&& other) noexcept
         {
             datalevels = std::move(other);
-            true_image = std::move(RVecI(datalevels.true_image.data(), datalevels.true_image.size()));
+            true_image = std::move(RVecI(
+                datalevels.true_image.data(), datalevels.true_image.size()));
+            true_image_pe = std::move(RVecD(
+                datalevels.true_image_pe.data(),
+                datalevels.true_image_pe.size()));
             fake_image = std::move(RVecD(datalevels.fake_image.data(), datalevels.fake_image.size()));
             fake_image_mask = std::move(RVecB(datalevels.fake_image_mask.data(), datalevels.fake_image_mask.size()));
             fake_image_parameters = datalevels.image_parameters;
@@ -406,6 +411,10 @@ class RootSimulatedCamera: public NewRootDataLevels<SimulatedCamera>
             {
                 tree->SetBranchAddress("true_image", &true_image_ptr);
             }
+            if(tree->GetBranch("true_image_pe") != nullptr)
+            {
+                tree->SetBranchAddress("true_image_pe", &true_image_pe_ptr);
+            }
             if(tree->GetBranch("fake_image") != nullptr)
             {
                 tree->SetBranchAddress("fake_image", &fake_image_ptr);
@@ -426,7 +435,13 @@ class RootSimulatedCamera: public NewRootDataLevels<SimulatedCamera>
         {
             if(true_image_ptr)
             {
-                datalevels.true_image = Eigen::Map<Eigen::VectorXi>(true_image_ptr->data(), true_image_ptr->size());
+                datalevels.true_image = Eigen::Map<Eigen::VectorXi>(
+                    true_image_ptr->data(), true_image_ptr->size());
+            }
+            if(true_image_pe_ptr)
+            {
+                datalevels.true_image_pe = Eigen::Map<Eigen::VectorXd>(
+                    true_image_pe_ptr->data(), true_image_pe_ptr->size());
             }
             if(fake_image_ptr)
             {
@@ -441,6 +456,7 @@ class RootSimulatedCamera: public NewRootDataLevels<SimulatedCamera>
         
     private:
         RVecI* true_image_ptr = nullptr;
+        RVecD* true_image_pe_ptr = nullptr;
         RVecD* fake_image_ptr = nullptr;
         RVecB* fake_image_mask_ptr = nullptr;
 

@@ -5,6 +5,7 @@
 #include "AtmosphereModel.hh"
 #include "spdlog/spdlog.h"
 #include "ReconstructorFactory.hh"
+#include <cmath>
 
 
 
@@ -52,6 +53,8 @@ std::vector<std::pair<int, int>> HillasReconstructor::get_tel_pairs()
 void HillasReconstructor::operator()(ArrayEvent& event)
 {
     rounded_used = false;
+    geometry = ReconstructedGeometry{};
+    impact_parameters.clear();
     GeometryReconstructor::operator()(event);
     if(hillas_dicts.size() < 2)
     {
@@ -60,7 +63,11 @@ void HillasReconstructor::operator()(ArrayEvent& event)
         event.dl2->geometry[this->name()] = geometry;
         return;
     }
-    reconstruct(hillas_dicts);
+    if (!reconstruct(hillas_dicts))
+    {
+        event.dl2->geometry[this->name()] = geometry;
+        return;
+    }
     // This is a temporay solution, if rounded is used we will refill the hillas_dicts with rounded hillas
     if(rounded_used)
     {
@@ -106,14 +113,6 @@ bool HillasReconstructor::reconstruct(const std::unordered_map<int, HillasParame
     auto intersection_position = tilted_core_position.transform_to_ground(*tilted_frame);
     auto [core_x, core_y] = project_to_ground(intersection_position, SkyDirection(AltAzFrame(), array_pointing_direction.azimuth, array_pointing_direction.altitude));
 
-    for(const auto tel_id: telescopes)
-    {
-        auto tel_coord = subarray.tel_positions.at(tel_id);
-        auto impact_parameter = Utils::point_line_distance(tel_coord, {core_x, core_y, 0}, {cos(rec_az), sin(rec_az), 0});
-        impact_parameters[tel_id] = impact_parameter;
-    }
-
-    geometry.is_valid = true;
     geometry.alt = rec_alt;
     geometry.az = rec_az;
     geometry.alt_uncertainty = sigma_x;
@@ -129,6 +128,41 @@ bool HillasReconstructor::reconstruct(const std::unordered_map<int, HillasParame
     geometry.tilted_core_uncertainty_x = tilted_sigma_x;
     geometry.tilted_core_uncertainty_y = tilted_sigma_y;
     geometry.telescopes = telescopes;
+
+    const bool finite_geometry =
+        std::isfinite(geometry.alt) &&
+        std::isfinite(geometry.alt_uncertainty) &&
+        std::isfinite(geometry.az) &&
+        std::isfinite(geometry.az_uncertainty) &&
+        std::isfinite(geometry.core_x) &&
+        std::isfinite(geometry.core_y) &&
+        std::isfinite(geometry.tilted_core_x) &&
+        std::isfinite(geometry.tilted_core_y) &&
+        std::isfinite(geometry.tilted_core_uncertainty_x) &&
+        std::isfinite(geometry.tilted_core_uncertainty_y) &&
+        std::isfinite(geometry.hmax) &&
+        std::isfinite(geometry.xmax);
+    if (!finite_geometry)
+    {
+        geometry.is_valid = false;
+        impact_parameters.clear();
+        return false;
+    }
+
+    for(const auto tel_id: telescopes)
+    {
+        auto tel_coord = subarray.tel_positions.at(tel_id);
+        auto impact_parameter = Utils::point_line_distance(tel_coord, {core_x, core_y, 0}, {cos(rec_az), sin(rec_az), 0});
+        if (!std::isfinite(impact_parameter))
+        {
+            geometry.is_valid = false;
+            impact_parameters.clear();
+            return false;
+        }
+        impact_parameters[tel_id] = impact_parameter;
+    }
+
+    geometry.is_valid = true;
     return true;
 }
 

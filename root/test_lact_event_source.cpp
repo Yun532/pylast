@@ -84,6 +84,26 @@ void writeFixture(const std::filesystem::path& path, WaveformCase waveform_case)
     telescopes.Fill();
     telescopes.Write();
 
+    long long corsika_event_id = 100;
+    int shower_event_id = 1;
+    int array_id = 2;
+    double array_time_offset_ns = 3.5;
+    double area_weight_m2 = 1250.0;
+    bool has_explicit_area_weight = true;
+    TTree corsika_events("corsika_events", "corsika_events");
+    corsika_events.Branch("event_id", &corsika_event_id);
+    corsika_events.Branch("shower_event_id", &shower_event_id);
+    corsika_events.Branch("array_id", &array_id);
+    corsika_events.Branch("array_time_offset_ns", &array_time_offset_ns);
+    corsika_events.Branch("area_weight_m2", &area_weight_m2);
+    corsika_events.Branch("has_explicit_area_weight",
+                          &has_explicit_area_weight);
+    corsika_events.Fill();
+    corsika_event_id = 101;
+    array_id = 3;
+    corsika_events.Fill();
+    corsika_events.Write();
+
     const bool measured_mv =
         waveform_case == WaveformCase::MeasuredMv ||
         waveform_case == WaveformCase::MeasuredMvMissingCalibration;
@@ -122,7 +142,7 @@ void writeFixture(const std::filesystem::path& path, WaveformCase waveform_case)
     int n_pixels_camera = 1;
     std::vector<int> observation_pixels = {1};
     std::vector<float> image_pe = {4.25f};
-    std::vector<float> image_cherenkov_pe = {5.0f};
+    std::vector<float> image_cherenkov_pe = {5.25f};
     std::vector<float> image_time_peak_ns = {0.5f};
     double reference_time_ns = -1.0;
     double time_first_ns = -1.0;
@@ -134,6 +154,7 @@ void writeFixture(const std::filesystem::path& path, WaveformCase waveform_case)
     double trigger_max_multiplicity_time_ns = 12.5;
     double geometric_delay_ns = -2.0;
     double coincidence_time_ns = 10.5;
+    double impact_parameter_m = 37.25;
     TTree observations("observations", "observations");
     observations.Branch("event_id", &event_id);
     observations.Branch("telescope_id", &telescope_id);
@@ -154,6 +175,7 @@ void writeFixture(const std::filesystem::path& path, WaveformCase waveform_case)
                         &trigger_max_multiplicity_time_ns);
     observations.Branch("geometric_delay_ns", &geometric_delay_ns);
     observations.Branch("coincidence_time_ns", &coincidence_time_ns);
+    observations.Branch("impact_parameter_m", &impact_parameter_m);
     observations.Fill();
     event_id = 101;
     triggered = false;
@@ -227,6 +249,14 @@ int main()
         base / "pylast_lact_measured_mv_missing_calibration.root";
 
     try {
+        SimulatedCamera default_camera;
+        require(default_camera.true_image_sum == 0,
+                "default simulated-camera image sum must be zero");
+        require(std::isnan(default_camera.impact_parameter),
+                "default simulated-camera impact must be unavailable");
+        require(std::isnan(default_camera.time_range_10_90),
+                "default simulated-camera time range must be unavailable");
+
         writeFixture(complete, WaveformCase::Complete);
         writeFixture(no_waveforms, WaveformCase::NoTree);
         writeFixture(missing, WaveformCase::MissingTriggered);
@@ -242,6 +272,25 @@ int main()
         require(first.event_id == 100, "first indexed event id");
         require(second.event_id == 101, "second indexed event id");
         require(first.simulation.has_value(), "first simulation container");
+        require(first.simulation->shower_event_id == 1 &&
+                    first.simulation->array_id == 2 &&
+                    std::abs(first.simulation->array_time_offset_ns - 3.5) <
+                        1.0e-12 &&
+                    std::abs(first.simulation->area_weight_m2 - 1250.0) <
+                        1.0e-12 &&
+                    first.simulation->has_explicit_area_weight,
+                "CORSIKA array identity and area weight must reach the event");
+        require(std::abs(first.simulation->tels.at(0)->impact_parameter - 37.25) <
+                    1.0e-12,
+                "observation impact parameter must reach SimulatedCamera");
+        require(first.simulation->tels.at(0)->true_image_sum ==
+                    first.simulation->tels.at(0)->true_image.sum(),
+                "true-image total must equal the stored per-pixel values");
+        require(std::abs(first.simulation->tels.at(0)->true_image_pe[0] - 5.25) <
+                    1.0e-12 &&
+                    std::abs(first.simulation->tels.at(0)->true_image_pe.sum() -
+                             5.25) < 1.0e-12,
+                "fractional expectation truth must remain available in p.e.");
         require(first.simulation->triggered_tels == std::vector<int>{0},
                 "native triggered telescope list");
         require(second.simulation->triggered_tels.empty(),

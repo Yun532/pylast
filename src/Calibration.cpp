@@ -68,6 +68,13 @@ void Calibrator::operator()(ArrayEvent& event)
     for(const auto& [tel_id, r1_camera]: event.r1->tels)
     {
         auto [charge, peak_time] = (*image_extractor)(r1_camera->waveform, r1_camera->gain_selection, tel_id);
+        // The extractor reports the peak position in ns from sample 0 of this
+        // telescope's own readout window. Sources that anchor each telescope
+        // independently supply the absolute time of that sample, which makes
+        // peak_time comparable across telescopes; it is zero otherwise.
+        if (r1_camera->time_offset_ns != 0.0) {
+            peak_time.array() += r1_camera->time_offset_ns;
+        }
         event.dl0->add_tel(tel_id, DL0Camera{.image = std::move(charge), .peak_time=std::move(peak_time)});
     }
 }

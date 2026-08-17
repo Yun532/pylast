@@ -15,6 +15,7 @@ class ImageParameters;
 #include "TelImpactParameter.hh"
 #include "spdlog/fmt/fmt.h"
 #include "ImageParameters.hh"
+#include <limits>
 
 class SimulatedCamera {
 public:
@@ -23,17 +24,18 @@ public:
      * @brief Sum intensity of the true image [p.e.]
      * 
      */
-    int true_image_sum;
+    int true_image_sum = 0;
     /**
      * @brief True image per pixel [p.e.]
      * 
      */
     Eigen::VectorXi true_image;
+    Eigen::VectorXd true_image_pe;
     /**
      * @brief True Impact Parameter object.
      * 
      */
-    double impact_parameter;
+    double impact_parameter = std::numeric_limits<double>::quiet_NaN();
     /**
      * @brief Fake image with poisson noise added.
      * 
@@ -42,7 +44,7 @@ public:
     Eigen::Vector<bool, -1> fake_image_mask; // Mask for the fake image
     Eigen::VectorXd pe_amplitude; // Amplitude of the photoelectrons
     Eigen::VectorXd pe_time; // Time of the photoelectrons
-    double time_range_10_90;
+    double time_range_10_90 = std::numeric_limits<double>::quiet_NaN();
 
     ImageParameters image_parameters;
     //ImageParameters true_image;

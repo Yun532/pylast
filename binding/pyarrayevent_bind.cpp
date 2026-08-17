@@ -354,6 +354,12 @@ void bind_r0_event(nb::module_ &m) {
 void bind_simulated_event(nb::module_ &m) {
     nb::class_<SimulatedEvent>(m, "SimulatedEvent")
         .def_ro("shower", &SimulatedEvent::shower)
+        .def_ro("shower_event_id", &SimulatedEvent::shower_event_id)
+        .def_ro("array_id", &SimulatedEvent::array_id)
+        .def_ro("array_time_offset_ns", &SimulatedEvent::array_time_offset_ns)
+        .def_ro("area_weight_m2", &SimulatedEvent::area_weight_m2)
+        .def_ro("has_explicit_area_weight",
+                &SimulatedEvent::has_explicit_area_weight)
         .def_ro("triggered_tels", &SimulatedEvent::triggered_tels)
         .def_prop_ro("tels", &SimulatedEvent::get_tels)
         .def("__repr__", [](SimulatedEvent& self) {
@@ -374,6 +380,12 @@ void bind_simulated_event(nb::module_ &m) {
     nb::class_<SimulatedCamera>(m, "SimulatedCamera")
         .def_ro("true_image_sum", &SimulatedCamera::true_image_sum)
         .def_ro("true_image", &SimulatedCamera::true_image)
+        .def_prop_ro("true_image_sum_pe", [](const SimulatedCamera& camera) {
+            return camera.true_image_pe.size() > 0
+                ? camera.true_image_pe.sum()
+                : static_cast<double>(camera.true_image_sum);
+        })
+        .def_ro("true_image_pe", &SimulatedCamera::true_image_pe)
         .def_ro("impact_parameter", &SimulatedCamera::impact_parameter)
         .def("__repr__", &SimulatedCamera::print)
         .def_ro("image_parameters", &SimulatedCamera::image_parameters)

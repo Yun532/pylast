@@ -13,6 +13,8 @@
 #include "Eigen/Dense"
 #include "Eigen/Sparse"
 #include "Eigen/src/Core/Matrix.h"
+#include <string>
+#include <unordered_map>
 using Eigen::MatrixXd;
 using Eigen::VectorXd;
 using std::string;

@@ -83,7 +83,7 @@ private:
   bool fake_trigger(const CameraGeometry &camera_geometry,
                     const Eigen::VectorXd &image, double threshold,
                     int min_pixels_above_threshold = 4);
-  Eigen::VectorXd adding_poisson_noise(Eigen::VectorXi true_image,
+  Eigen::VectorXd adding_poisson_noise(const Eigen::VectorXd& true_image,
                                        double poisson_noise);
 
   

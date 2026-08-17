@@ -332,6 +332,11 @@ void LactEventSource::load_corsika_events()
     set_branch_if_exists(tree, "event_id", &row.event_id);
     set_branch_if_exists(tree, "shower_event_id", &row.shower_event_id);
     set_branch_if_exists(tree, "array_id", &row.array_id);
+    set_branch_if_exists(tree, "array_time_offset_ns",
+                         &row.array_time_offset_ns);
+    set_branch_if_exists(tree, "area_weight_m2", &row.area_weight_m2);
+    set_branch_if_exists(tree, "has_explicit_area_weight",
+                         &row.has_explicit_area_weight);
     set_branch_if_exists(tree, "run_id", &row.run_id);
     set_branch_if_exists(tree, "primary_type", &row.primary_type);
     set_branch_if_exists(tree, "energy_gev", &row.energy_gev);
@@ -362,6 +367,7 @@ void LactEventSource::load_observations()
     set_branch_if_exists(tree, "telescope_id", &row.telescope_id);
     set_branch_if_exists(tree, "triggered", &row.triggered);
     set_branch_if_exists(tree, "n_pixels_camera", &row.n_pixels_camera);
+    set_branch_if_exists(tree, "impact_parameter_m", &row.impact_parameter_m);
     set_branch_if_exists(tree, "pixel_id", &pixel_id);
     set_branch_if_exists(tree, "image_pe", &image_pe);
     if (tree->GetBranch("image_primary_cherenkov_pe") != nullptr) {
@@ -848,6 +854,12 @@ ArrayEvent LactEventSource::get_event(int index)
     if (truth_it != corsika_by_event.end()) {
         const auto& truth = truth_it->second;
         event.run_id = truth.run_id;
+        event.simulation->shower_event_id = truth.shower_event_id;
+        event.simulation->array_id = truth.array_id;
+        event.simulation->array_time_offset_ns = truth.array_time_offset_ns;
+        event.simulation->area_weight_m2 = truth.area_weight_m2;
+        event.simulation->has_explicit_area_weight =
+            truth.has_explicit_area_weight;
         event.simulation->shower.energy = truth.energy_gev / 1000.0;
         event.simulation->shower.alt = deg_to_rad(truth.altitude_deg);
         event.simulation->shower.az = deg_to_rad(truth.azimuth_north_to_east_deg);
@@ -889,23 +901,41 @@ ArrayEvent LactEventSource::get_event(int index)
         const Eigen::VectorXd image = dense_image(obs);
         const Eigen::VectorXd peak_time = dense_peak_time(obs);
         const Eigen::VectorXd cherenkov_image = dense_cherenkov_image(obs);
-        if (cherenkov_image.sum() > 0.0) {
-            SimulatedCamera sim_camera;
-            sim_camera.true_image_sum = static_cast<int>(std::lround(cherenkov_image.sum()));
-            sim_camera.true_image = cherenkov_image.array().round().cast<int>();
-            sim_camera.impact_parameter = std::numeric_limits<double>::quiet_NaN();
-            event.simulation->add_tel(obs.telescope_id, std::move(sim_camera));
-        }
+        // Every saved telescope gets a SimulatedCamera, including the ones
+        // that triggered without any Cherenkov truth (NSB or noise). The
+        // triggered_tels list below is unconditional, and consumers such as
+        // ImageProcessor index simulation->tels with it, so gating this on a
+        // non-zero image left those telescopes missing and threw
+        // "unordered_map::at: key not found" downstream.
+        SimulatedCamera sim_camera;
+        sim_camera.true_image_pe = cherenkov_image;
+        sim_camera.true_image = cherenkov_image.array().round().cast<int>();
+        sim_camera.true_image_sum = sim_camera.true_image.sum();
+        sim_camera.impact_parameter = obs.impact_parameter_m;
+        event.simulation->add_tel(obs.telescope_id, std::move(sim_camera));
         if (obs.triggered) {
             event.simulation->triggered_tels.push_back(obs.telescope_id);
             if (use_waveform_readout) {
                 Eigen::Matrix<double, -1, -1, Eigen::RowMajor> waveform = dense_waveform(obs);
                 Eigen::VectorXi gain_selection = Eigen::VectorXi::Zero(waveform.rows());
+                // waveform_config.time_centers_ns is relative to this
+                // telescope's own observations.reference_time_ns.  Carry the
+                // absolute time of sample 0 so extracted peak times land on
+                // the same scale as the no-waveform DL0 path, which stores
+                // observations.image_time_peak_ns already in absolute ns.
+                double time_offset_ns = 0.0;
+                if (std::isfinite(obs.observation_timing.reference_time_ns) &&
+                    !waveform_config.time_centers_ns.empty()) {
+                    time_offset_ns =
+                        obs.observation_timing.reference_time_ns +
+                        waveform_config.time_centers_ns.front();
+                }
                 event.r1->add_tel(obs.telescope_id,
                                   R1Camera{static_cast<int>(waveform.rows()),
                                            static_cast<int>(waveform.cols()),
                                            std::move(waveform),
-                                           std::move(gain_selection)});
+                                           std::move(gain_selection),
+                                           time_offset_ns});
             }
             else {
                 event.dl0->add_tel(obs.telescope_id,

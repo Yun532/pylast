@@ -19,6 +19,12 @@ class R1Camera
         int n_samples;
         Eigen::Matrix<double, -1, -1, Eigen::RowMajor> waveform;
         Eigen::VectorXi gain_selection;
+        // Absolute time of the first waveform sample. Sources whose waveform
+        // axis is already on a common array-wide time base leave this at zero;
+        // sources that anchor each telescope independently (LACT ROOT with
+        // waveform.time_reference=image_first) set it so extracted peak times
+        // stay comparable across telescopes.
+        double time_offset_ns = 0.0;
 };
 /**
  * @brief R1Event doing three steps:
