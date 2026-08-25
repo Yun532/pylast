@@ -6,6 +6,7 @@
 #include "Utils.hh"
 #include "spdlog/spdlog.h"
 #include "ReconstructorFactory.hh"
+#include <algorithm>
 #include <cmath>
 
 namespace {
@@ -22,28 +23,32 @@ struct CogBetaMissResult {
 CogBetaMissResult computeCogBetaMiss(double fov_x, double fov_y, double true_psi,
                                      double cog_x, double cog_y, double psi)
 {
+    if (!std::isfinite(fov_x) || !std::isfinite(fov_y) ||
+        !std::isfinite(true_psi) || !std::isfinite(cog_x) ||
+        !std::isfinite(cog_y) || !std::isfinite(psi)) {
+        return {};
+    }
     auto cog_point = CameraPoint({cog_x, cog_y});
     auto true_line_direction = Line2D({fov_x, fov_y}, {std::cos(true_psi), std::sin(true_psi)});
     double cog_err = true_line_direction.distance(cog_point);
 
-    double beta_err = true_psi - psi;
-    while (beta_err > M_PI / 2)
-        beta_err -= M_PI;
-    while (beta_err < -M_PI / 2)
-        beta_err += M_PI;
+    double beta_err = std::remainder(true_psi - psi, M_PI);
 
     double off_lon = fov_x - cog_x;
     double off_lat = fov_y - cog_y;
     double disp_projection = off_lon * std::cos(psi) + off_lat * std::sin(psi);
     double disp = std::sqrt(off_lon * off_lon + off_lat * off_lat);
-    double miss = std::sqrt(disp * disp - disp_projection * disp_projection);
+    double miss = std::sqrt(std::max(
+        0.0, disp * disp - disp_projection * disp_projection));
 
     if (true_psi != M_PI / 2 && std::tan(true_psi) * (-off_lon) + off_lat < 0)
         cog_err = -cog_err;
     if (psi != M_PI / 2 && std::tan(psi) * off_lon - off_lat < 0)
         miss = -miss;
 
-    double theta = (disp > 1e-10) ? std::asin(miss / disp) : 0.0;
+    double theta = (disp > 1e-10)
+        ? std::asin(std::clamp(miss / disp, -1.0, 1.0))
+        : 0.0;
     return {cog_err, beta_err, miss, disp, disp_projection, theta};
 }
 }  // namespace
@@ -108,8 +113,10 @@ void ShowerProcessor::operator()(ArrayEvent& event)
     }
 
     //TODO Combine the DL1 and Simulation together.
-    for(auto& [tel_id, dl1]: event.dl1->tels)
+    if (event.dl1 && event.simulation && event.pointing)
     {
+        for(auto& [tel_id, dl1]: event.dl1->tels)
+        {
 
                 auto true_direction = SkyDirection(AltAzFrame(), event.simulation->shower.az, event.simulation->shower.alt);
                 auto telescope_frame = TelescopeFrame(SphericalRepresentation(event.pointing->tels[tel_id]->azimuth, event.pointing->tels[tel_id]->altitude));
@@ -132,12 +139,26 @@ void ShowerProcessor::operator()(ArrayEvent& event)
                 dl1->image_parameters.extra.miss = result.miss;
                 dl1->image_parameters.extra.disp = result.disp_projection;
                 dl1->image_parameters.extra.theta = result.theta;
+        }
     }
 
-    for(auto& [tel_id, simulated_camera]: event.simulation->tels)
+    if (!event.simulation || !event.pointing)
     {
+        return;
+    }
+    for(const auto tel_id: event.simulation->triggered_tels)
+    {
+        const auto camera_it = event.simulation->tels.find(tel_id);
+        if (camera_it == event.simulation->tels.end())
+        {
+            continue;
+        }
+        auto& simulated_camera = camera_it->second;
         auto& image_parameter = simulated_camera->image_parameters;
-        if(image_parameter.hillas.intensity < 40)
+        const auto& hillas = image_parameter.hillas;
+        if(!std::isfinite(hillas.intensity) ||
+           !std::isfinite(hillas.x) || !std::isfinite(hillas.y) ||
+           !std::isfinite(hillas.psi) || hillas.intensity < 40)
         {
             continue;
         }
@@ -154,7 +175,6 @@ void ShowerProcessor::operator()(ArrayEvent& event)
                              : std::atan2(tilted_core_pos.y() - tilted_tel_pos.y(),
                                           tilted_core_pos.x() - tilted_tel_pos.x());
 
-        auto& hillas = image_parameter.hillas;
         auto result = computeCogBetaMiss(fov_direction->x(), fov_direction->y(), true_psi,
                                         hillas.x, hillas.y, hillas.psi);
 
@@ -166,11 +186,15 @@ void ShowerProcessor::operator()(ArrayEvent& event)
         image_parameter.extra.theta = result.theta;
 
         auto& two_gauss = image_parameter.two_gaussian_fit;
-        auto gaussian_result = computeCogBetaMiss(fov_direction->x(), fov_direction->y(), true_psi,
-                                                 two_gauss.mean_x, two_gauss.mean_y, two_gauss.psi);
-        two_gauss.cog_err = gaussian_result.cog_err;
-        two_gauss.beta_err = gaussian_result.beta_err;
-        two_gauss.disp = gaussian_result.disp_projection;
-        two_gauss.miss = gaussian_result.miss;
+        if (two_gauss.status == 1)
+        {
+            auto gaussian_result = computeCogBetaMiss(
+                fov_direction->x(), fov_direction->y(), true_psi,
+                two_gauss.mean_x, two_gauss.mean_y, two_gauss.psi);
+            two_gauss.cog_err = gaussian_result.cog_err;
+            two_gauss.beta_err = gaussian_result.beta_err;
+            two_gauss.disp = gaussian_result.disp_projection;
+            two_gauss.miss = gaussian_result.miss;
+        }
     }
 }

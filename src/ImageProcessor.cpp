@@ -447,12 +447,10 @@ void ImageProcessor::handle_simulation_level(ArrayEvent &event) {
     } else {
       signal_image = simulated_camera->true_image.cast<double>();
     }
+    simulated_camera->image_parameters = ImageParameters{};
+    simulated_camera->fake_image = Eigen::VectorXd::Zero(signal_image.size());
     if (signal_image.size() > 0) {
       if (recompute_trigger) {
-        const double signal_sum = signal_image.sum();
-        if (signal_sum < 10.0) {
-          continue;
-        }
         auto noise_image =
             adding_poisson_noise(signal_image, poisson_noise);
         if (fake_trigger(
