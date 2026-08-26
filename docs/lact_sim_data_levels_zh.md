@@ -75,6 +75,20 @@ NSB。
 
 ## 3. 无波形和有波形的区别
 
+默认 `LactEventSource(..., read_untriggered=False)` 保持原簇射分析行为：
+只有触发望远镜进入 DL0/R1。NSB 独立采集或关闭触发时，应显式使用：
+
+```python
+source = LactEventSource(
+    "lact_events.root",
+    read_untriggered=True,
+)
+readout_tels = source.get_readout_tels(source[0])
+```
+
+`readout_tels` 表示 ROOT 中实际保存的数据，`triggered_tels` 仍只表示真实触发，
+开启读取开关不会修改触发真值。
+
 当 LACT ROOT 没有 `waveforms` 树时，`LactEventSource` 直接把
 `observations.image_pe` 写入 DL0。这是当前 LACT_sim 用户配置的默认方式：
 
@@ -95,6 +109,17 @@ truth = event.simulation.tels[tel_id].true_image
 ```text
 PE = sum_t(sample_value_mV) * sample_width_ns / single_pe_area_mv_ns
 ```
+
+原始单位波形可独立读取，不经过 mV→PE 转换：
+
+```python
+raw_mv = source.get_raw_waveform(event, telescope_id=0)
+```
+
+可选 `baseline_samples=N` 在建立 R1 时先扣除每个像素前 N 个采样的均值；默认
+为 0，因此旧簇射 ROOT 的数值路径不变。基线属于 raw→R1，现有 `Calibrator`
+仍只负责 R1→DL0 的面积和峰时提取。连续 NSB 亮度测量通常不应扣除 NSB 均值；
+在 NSB 上提取 Cherenkov 脉冲时才使用 pedestal/前窗基线。
 
 要让 DL0 严格对应完整的饱和后积分图像，应使用全波形提取器：
 

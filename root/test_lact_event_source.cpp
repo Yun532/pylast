@@ -192,6 +192,8 @@ void writeFixture(const std::filesystem::path& path, WaveformCase waveform_case)
         std::vector<unsigned short> time_bin = measured_mv
             ? std::vector<unsigned short>{0, 1, 2, 3, 4, 5}
             : std::vector<unsigned short>{0};
+        std::vector<unsigned int> time_bin_u32(
+            time_bin.begin(), time_bin.end());
         std::vector<float> values = measured_mv
             ? std::vector<float>{0.0f, 1.0f, 4.0f, 2.0f, 1.0f, 0.0f}
             : std::vector<float>{4.25f};
@@ -202,9 +204,17 @@ void writeFixture(const std::filesystem::path& path, WaveformCase waveform_case)
         waveforms.Branch("n_time_bins", &n_time_bins);
         waveforms.Branch("pixel_id", &waveform_pixels);
         waveforms.Branch("time_bin", &time_bin);
+        if (waveform_case == WaveformCase::Complete) {
+            waveforms.Branch("time_bin_u32", &time_bin_u32);
+        }
         waveforms.Branch(measured_mv ? "sample_value" : "pe", &values);
         if (waveform_case == WaveformCase::Complete || measured_mv) {
             waveforms.Fill();
+            if (waveform_case == WaveformCase::Complete) {
+                event_id = 101;
+                values = {1.5f};
+                waveforms.Fill();
+            }
         } else if (waveform_case == WaveformCase::MismatchedArrays) {
             time_bin.clear();
             waveforms.Fill();
@@ -295,6 +305,8 @@ int main()
                 "native triggered telescope list");
         require(second.simulation->triggered_tels.empty(),
                 "empty trigger list must remain valid");
+        require(second.r1->tels.empty(),
+                "default source must not expose untriggered readout");
         const auto trigger_timing = complete_source.get_trigger_timing(100);
         require(trigger_timing.size() == 1 && trigger_timing.count(0) == 1,
                 "native trigger timing row");
@@ -335,6 +347,21 @@ int main()
         require(std::abs(first.dl0->tels.at(0)->image[0] - 4.25) < 1.0e-12,
                 "LACT proxy waveform must not receive pulse-shape correction");
 
+        LactEventSource readout_source(
+            complete.string(), -1, {}, false, true);
+        auto untriggered_readout = readout_source.get_event(1);
+        require(untriggered_readout.simulation->triggered_tels.empty(),
+                "readout switch must not change trigger truth");
+        require(untriggered_readout.r1->tels.count(0) == 1 &&
+                    std::abs(untriggered_readout.r1->tels.at(0)->waveform.sum() -
+                             1.5) < 1.0e-12,
+                "readout switch must expose saved untriggered waveform");
+        require(readout_source.get_readout_tels(101) == std::vector<int>{0},
+                "readout telescope list must be trigger independent");
+        require(std::abs(readout_source.get_raw_waveform(101, 0).sum() - 1.5) <
+                    1.0e-12,
+                "raw waveform accessor must preserve stored samples");
+
         LactEventSource filtered_source(complete.string(), -1, {1});
         require(filtered_source.event_count() == 0,
                 "allowed telescope filter must exclude telescope 0 events");
@@ -348,6 +375,11 @@ int main()
                 "image_pe must map to no-waveform DL0 image");
         require(no_waveform_event.simulation->tels.at(0)->true_image[0] == 5,
                 "image_cherenkov_pe must map to simulation true_image");
+        LactEventSource no_waveform_readout_source(
+            no_waveforms.string(), -1, {}, false, true);
+        auto untriggered_image = no_waveform_readout_source.get_event(1);
+        require(untriggered_image.dl0->tels.count(0) == 1,
+                "readout switch must expose saved untriggered image");
 
         requireThrows([&]() { LactEventSource source(missing.string()); },
                       "missing waveform");
@@ -360,6 +392,16 @@ int main()
         require(readout.reference_pulse_shape.rows() == 1 &&
                     readout.reference_pulse_shape.cols() == 6,
                 "measured reference pulse must reach CameraReadout");
+        require(std::abs(measured_source.get_raw_waveform(100, 0).sum() - 8.0) <
+                    1.0e-12,
+                "raw mV accessor must precede p.e. calibration");
+
+        LactEventSource baseline_source(
+            measured.string(), -1, {}, false, false, 2);
+        auto baseline_event = baseline_source.get_event(0);
+        require(std::abs(baseline_event.r1->tels.at(0)->waveform.sum() - 0.625) <
+                    1.0e-12,
+                "optional pre-window baseline must be subtracted before R1");
 
         auto measured_full_event = measured_source.get_event(0);
         require(std::abs(

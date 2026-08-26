@@ -49,7 +49,9 @@ public:
     LactEventSource(const std::string& filename,
                     int64_t max_events = -1,
                     std::vector<int> subarray = {},
-                    bool load_simulated_showers = false);
+                    bool load_simulated_showers = false,
+                    bool read_untriggered = false,
+                    int baseline_samples = 0);
     ~LactEventSource() override;
 
     void open_file() override;
@@ -72,6 +74,9 @@ public:
     std::map<int, TriggerTimingRow> get_trigger_timing(long long event_id) const;
     std::map<int, ObservationTimingRow>
     get_observation_timing(long long event_id) const;
+    std::vector<int> get_readout_tels(long long event_id) const;
+    Eigen::Matrix<double, -1, -1, Eigen::RowMajor>
+    get_raw_waveform(long long event_id, int telescope_id) const;
 
 private:
     struct CameraPixelRow {
@@ -140,7 +145,7 @@ private:
         int n_pixels_camera = 0;
         int n_time_bins = 0;
         std::vector<int> pixel_id;
-        std::vector<unsigned short> time_bin;
+        std::vector<unsigned int> time_bin;
         std::vector<float> sample_value;
     };
 
@@ -172,6 +177,8 @@ private:
     Eigen::VectorXd dense_peak_time(const ObservationRow& obs) const;
     Eigen::Matrix<double, -1, -1, Eigen::RowMajor>
     dense_waveform(const ObservationRow& obs) const;
+    Eigen::Matrix<double, -1, -1, Eigen::RowMajor>
+    dense_raw_waveform(const ObservationRow& obs) const;
 
     std::unique_ptr<TFile> file;
     std::string schema_name;
@@ -193,5 +200,7 @@ private:
     bool has_trigger_max_multiplicity_time = false;
     bool has_geometric_delay = false;
     bool has_coincidence_time = false;
+    bool read_untriggered = false;
+    int baseline_samples = 0;
     std::vector<long long> event_order;
 };

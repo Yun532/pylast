@@ -138,7 +138,10 @@ def plot_event_trigger_timing(
         root_file = event
         event = None
     if root_file is not None:
-        source = LactEventSource(str(root_file), max_events=max_events)
+        source = LactEventSource(
+            str(root_file), max_events=max_events,
+            read_untriggered=include_non_triggered,
+        )
         event = source[event_index]
     if event is None:
         raise ValueError("event is required")
@@ -185,7 +188,10 @@ def plot_event_pe_time_series(
         root_file = event
         event = None
     if root_file is not None:
-        source = LactEventSource(str(root_file), max_events=max_events)
+        source = LactEventSource(
+            str(root_file), max_events=max_events,
+            read_untriggered=include_non_triggered,
+        )
         event = source[event_index]
     if event is None:
         raise ValueError("event is required")
@@ -551,7 +557,10 @@ def plot_gathered_images(
         root_file = event
         event = None
     if root_file is not None:
-        source = LactEventSource(str(root_file), max_events=max_events)
+        source = LactEventSource(
+            str(root_file), max_events=max_events,
+            read_untriggered=include_non_triggered,
+        )
         event = source[event_index]
     if event is None:
         raise ValueError("event is required")
@@ -655,7 +664,10 @@ def plot_root_event_cores(
 ):
     """Read one LACT ROOT event and draw the array/core view."""
 
-    source = LactEventSource(str(root_file), max_events=max_events)
+    source = LactEventSource(
+        str(root_file), max_events=max_events,
+        read_untriggered=include_non_triggered,
+    )
     event = source[event_index]
     result = plot_event_cores(
         event,
@@ -680,7 +692,10 @@ def plot_root_event_sdp_planes(
 ):
     """Read one LACT ROOT event and draw triggered telescope SDP planes."""
 
-    source = LactEventSource(str(root_file), max_events=max_events)
+    source = LactEventSource(
+        str(root_file), max_events=max_events,
+        read_untriggered=include_non_triggered,
+    )
     event = source[event_index]
     result = plot_event_sdp_planes(
         event,
@@ -708,7 +723,10 @@ def plot_root_event_sdp_planes_3d(
 ):
     """Read one LACT ROOT event and draw a 3D SDP diagnostic."""
 
-    source = LactEventSource(str(root_file), max_events=max_events)
+    source = LactEventSource(
+        str(root_file), max_events=max_events,
+        read_untriggered=include_non_triggered,
+    )
     event = source[event_index]
     result = plot_event_sdp_planes_3d(
         event,
@@ -738,7 +756,10 @@ def plot_root_event_sdp_planes_3d_interactive(
 ):
     """Read one LACT ROOT event and draw an interactive 3D SDP diagnostic."""
 
-    source = LactEventSource(str(root_file), max_events=max_events)
+    source = LactEventSource(
+        str(root_file), max_events=max_events,
+        read_untriggered=include_non_triggered,
+    )
     event = source[event_index]
     return plot_event_sdp_planes_3d_interactive(
         event,
@@ -781,7 +802,10 @@ def plot_root_event_cameras(
         show_reco_sdp = bool(reco)
     if reco_sdp is not None:
         show_reco_sdp = bool(reco_sdp)
-    source = LactEventSource(str(root_file), max_events=max_events)
+    source = LactEventSource(
+        str(root_file), max_events=max_events,
+        read_untriggered=include_non_triggered,
+    )
     event = source[event_index]
     result = plot_event_cameras(
         event,
@@ -975,7 +999,10 @@ def plot_event_quicklook(
     if show is None:
         show = outdir is None
 
-    source = LactEventSource(str(root_file), max_events=max_events)
+    source = LactEventSource(
+        str(root_file), max_events=max_events,
+        read_untriggered=include_non_triggered,
+    )
     event = source[event_index]
     visualizer = EventVisualizer(source)
 
@@ -1034,6 +1061,94 @@ def plot_event_quicklook(
         "paths": paths,
         "figures": figures,
         "axes": axes,
+    }
+
+
+def plot_lact_waveforms(
+    root_file: str | PathLike[str],
+    event_index: int = 0,
+    telescope_id: int | None = None,
+    pixel_indices: list[int] | tuple[int, ...] | None = None,
+    level: str = "raw",
+    baseline_samples: int = 0,
+    max_pixels: int = 4,
+    output_path: str | PathLike[str] | None = None,
+    show: bool | None = None,
+):
+    """Plot stored raw samples or calibrated R1 p.e.-charge waveforms.
+
+    ``baseline_samples`` only affects R1 and is opt-in, so existing shower
+    ROOT processing remains unchanged.
+    """
+
+    import matplotlib.pyplot as plt
+
+    key = str(level).strip().lower()
+    if key not in {"raw", "raw_mv", "r1", "r1_pe"}:
+        raise ValueError("level must be raw/raw_mv or r1/r1_pe")
+    source = LactEventSource(
+        str(root_file), baseline_samples=int(baseline_samples),
+        read_untriggered=True,
+    )
+    event = source[event_index]
+    readout_tels = source.get_readout_tels(event)
+    if telescope_id is None:
+        if not readout_tels:
+            raise ValueError("event has no saved telescope readout")
+        telescope_id = readout_tels[0]
+    telescope_id = int(telescope_id)
+
+    if key in {"raw", "raw_mv"}:
+        waveform = np.asarray(
+            source.get_raw_waveform(event, telescope_id), dtype=float
+        )
+    else:
+        waveform = np.asarray(
+            event.r1.tels[telescope_id].waveform, dtype=float
+        )
+    if pixel_indices is None:
+        ranking = np.argsort(np.sum(np.abs(waveform), axis=1))[::-1]
+        pixel_indices = ranking[:max(1, int(max_pixels))].tolist()
+    pixel_indices = [int(pixel) for pixel in pixel_indices]
+
+    timing = source.get_waveform_timing(event, telescope_id)
+    times = np.asarray(
+        timing.get("absolute_time_ns") or timing.get("time_centers_ns"),
+        dtype=float,
+    )
+    if times.size != waveform.shape[1]:
+        times = np.arange(waveform.shape[1], dtype=float)
+
+    figure, axis = plt.subplots(figsize=(10, 4.8))
+    for pixel in pixel_indices:
+        axis.plot(times, waveform[pixel], label=f"pixel index {pixel}")
+    unit = timing.get("sample_unit", "stored unit")
+    axis.set_xlabel("time [ns]")
+    axis.set_ylabel(unit if key in {"raw", "raw_mv"} else "p.e. charge / bin")
+    axis.set_title(
+        f"event {event.event_id}, telescope {telescope_id}, {key} waveform"
+    )
+    axis.legend(loc="best")
+    axis.grid(alpha=0.25)
+    figure.tight_layout()
+    if output_path is not None:
+        output_path = Path(output_path)
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        figure.savefig(output_path, dpi=160, bbox_inches="tight")
+    if show is None:
+        show = output_path is None
+    if show:
+        plt.show()
+    elif output_path is not None:
+        plt.close(figure)
+    return {
+        "source": source,
+        "event": event,
+        "figure": figure,
+        "axis": axis,
+        "pixel_indices": pixel_indices,
+        "waveform": waveform,
+        "time_ns": times,
     }
 
 

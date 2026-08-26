@@ -82,9 +82,16 @@ double deg_to_rad(double deg)
 LactEventSource::LactEventSource(const std::string& filename,
                                  int64_t max_events,
                                  std::vector<int> subarray,
-                                 bool load_simulated_showers)
-    : EventSource(filename, max_events, subarray, load_simulated_showers)
+                                 bool load_simulated_showers,
+                                 bool read_untriggered,
+                                 int baseline_samples)
+    : EventSource(filename, max_events, subarray, load_simulated_showers),
+      read_untriggered(read_untriggered),
+      baseline_samples(baseline_samples)
 {
+    if (baseline_samples < 0) {
+        throw std::runtime_error("baseline_samples must be >= 0");
+    }
     is_stream = false;
     initialize();
     load_schema();
@@ -552,8 +559,15 @@ void LactEventSource::load_waveforms()
     }
     has_waveform_tree = true;
     for (const char* branch : {"event_id", "telescope_id", "n_pixels_camera",
-                               "n_time_bins", "pixel_id", "time_bin"}) {
+                               "n_time_bins", "pixel_id"}) {
         require_branch(tree, "waveforms", branch);
+    }
+    const bool has_time_bin_u32 =
+        tree->GetBranch("time_bin_u32") != nullptr;
+    const bool has_legacy_time_bin = tree->GetBranch("time_bin") != nullptr;
+    if (!has_time_bin_u32 && !has_legacy_time_bin) {
+        throw std::runtime_error(
+            "missing required LACT ROOT waveform time-bin branch");
     }
     const bool has_sample_value = tree->GetBranch("sample_value") != nullptr;
     const bool has_legacy_pe = tree->GetBranch("pe") != nullptr;
@@ -580,14 +594,19 @@ void LactEventSource::load_waveforms()
     }
     WaveformRow row;
     std::vector<int>* pixel_id = nullptr;
-    std::vector<unsigned short>* time_bin = nullptr;
+    std::vector<unsigned int>* time_bin_u32 = nullptr;
+    std::vector<unsigned short>* legacy_time_bin = nullptr;
     std::vector<float>* sample_value = nullptr;
     set_branch_if_exists(tree, "event_id", &row.event_id);
     set_branch_if_exists(tree, "telescope_id", &row.telescope_id);
     set_branch_if_exists(tree, "n_pixels_camera", &row.n_pixels_camera);
     set_branch_if_exists(tree, "n_time_bins", &row.n_time_bins);
     set_branch_if_exists(tree, "pixel_id", &pixel_id);
-    set_branch_if_exists(tree, "time_bin", &time_bin);
+    if (has_time_bin_u32) {
+        tree->SetBranchAddress("time_bin_u32", &time_bin_u32);
+    } else {
+        tree->SetBranchAddress("time_bin", &legacy_time_bin);
+    }
     tree->SetBranchAddress(has_sample_value ? "sample_value" : "pe",
                            &sample_value);
     bool have_n_time_bins = waveform_config.available && waveform_config.n_time_bins > 0;
@@ -598,7 +617,14 @@ void LactEventSource::load_waveforms()
             continue;
         }
         row.pixel_id = pixel_id ? *pixel_id : std::vector<int>{};
-        row.time_bin = time_bin ? *time_bin : std::vector<unsigned short>{};
+        if (time_bin_u32) {
+            row.time_bin = *time_bin_u32;
+        } else if (legacy_time_bin) {
+            row.time_bin.assign(
+                legacy_time_bin->begin(), legacy_time_bin->end());
+        } else {
+            row.time_bin.clear();
+        }
         row.sample_value = sample_value
             ? *sample_value : std::vector<float>{};
         if (row.pixel_id.size() != row.time_bin.size() ||
@@ -671,7 +697,7 @@ void LactEventSource::validate_waveforms() const
         }
     }
     for (const auto& obs : observations) {
-        if (!obs.triggered) {
+        if (!obs.triggered && !read_untriggered) {
             continue;
         }
         const auto key = std::make_pair(obs.event_id, obs.telescope_id);
@@ -757,7 +783,7 @@ Eigen::VectorXd LactEventSource::dense_peak_time(const ObservationRow& obs) cons
 }
 
 Eigen::Matrix<double, -1, -1, Eigen::RowMajor>
-LactEventSource::dense_waveform(const ObservationRow& obs) const
+LactEventSource::dense_raw_waveform(const ObservationRow& obs) const
 {
     const auto wf_it = waveforms.find({obs.event_id, obs.telescope_id});
     const int n_samples = waveform_config.available
@@ -773,10 +799,32 @@ LactEventSource::dense_waveform(const ObservationRow& obs) const
     }
 
     const auto& wf = wf_it->second;
+    for (std::size_t i = 0; i < wf.pixel_id.size(); ++i) {
+        const int pix = pixel_index(wf.pixel_id[i]);
+        const int bin = static_cast<int>(wf.time_bin[i]);
+        // R1 follows the native pyLAST contract: every sample contains its
+        // p.e.-charge contribution. Generic Calibrator/ImageExtractor code
+        // can therefore remain identical for LACT and simtelarray sources.
+        waveform(pix, bin) += static_cast<double>(wf.sample_value[i]);
+    }
+    return waveform;
+}
+
+Eigen::Matrix<double, -1, -1, Eigen::RowMajor>
+LactEventSource::dense_waveform(const ObservationRow& obs) const
+{
+    auto waveform = dense_raw_waveform(obs);
     double sample_to_pe = 1.0;
     if (waveform_config.sample_unit == "mV") {
         sample_to_pe = waveform_config.time_bin_width_ns /
             waveform_config.single_pe_area_mv_ns;
+        if (baseline_samples > 0) {
+            const int count = std::min<int>(baseline_samples, waveform.cols());
+            for (int pixel = 0; pixel < waveform.rows(); ++pixel) {
+                const double baseline = waveform.row(pixel).head(count).mean();
+                waveform.row(pixel).array() -= baseline;
+            }
+        }
     } else if (!(waveform_config.sample_unit.empty() ||
                  waveform_config.sample_unit == "pe" ||
                  waveform_config.sample_unit == "pe_per_sample" ||
@@ -785,17 +833,40 @@ LactEventSource::dense_waveform(const ObservationRow& obs) const
         throw std::runtime_error(
             "unsupported LACT ROOT waveform sample unit: " +
             waveform_config.sample_unit);
+    } else if (baseline_samples > 0) {
+        throw std::runtime_error(
+            "baseline_samples is only supported for mV waveforms");
     }
-    for (std::size_t i = 0; i < wf.pixel_id.size(); ++i) {
-        const int pix = pixel_index(wf.pixel_id[i]);
-        const int bin = static_cast<int>(wf.time_bin[i]);
-        // R1 follows the native pyLAST contract: every sample contains its
-        // p.e.-charge contribution. Generic Calibrator/ImageExtractor code
-        // can therefore remain identical for LACT and simtelarray sources.
-        waveform(pix, bin) +=
-            static_cast<double>(wf.sample_value[i]) * sample_to_pe;
-    }
+    waveform *= sample_to_pe;
     return waveform;
+}
+
+std::vector<int> LactEventSource::get_readout_tels(long long event_id) const
+{
+    std::vector<int> result;
+    const auto found = observation_indices_by_event.find(event_id);
+    if (found == observation_indices_by_event.end()) {
+        return result;
+    }
+    for (const auto row_index : found->second) {
+        const auto telescope_id = observations.at(row_index).telescope_id;
+        if (keep_tel(telescope_id)) {
+            result.push_back(telescope_id);
+        }
+    }
+    std::sort(result.begin(), result.end());
+    result.erase(std::unique(result.begin(), result.end()), result.end());
+    return result;
+}
+
+Eigen::Matrix<double, -1, -1, Eigen::RowMajor>
+LactEventSource::get_raw_waveform(long long event_id, int telescope_id) const
+{
+    const auto found = observation_index.find({event_id, telescope_id});
+    if (found == observation_index.end()) {
+        throw std::out_of_range("LACT ROOT observation not found");
+    }
+    return dense_raw_waveform(observations.at(found->second));
 }
 
 ArrayEvent LactEventSource::get_event()
@@ -883,7 +954,8 @@ ArrayEvent LactEventSource::get_event(int index)
     bool use_waveform_readout = false;
     for (const std::size_t row_index : observation_rows) {
         const auto& obs = observations[row_index];
-        if (keep_tel(obs.telescope_id) && obs.triggered &&
+        if (keep_tel(obs.telescope_id) &&
+            (obs.triggered || read_untriggered) &&
             waveforms.find({obs.event_id, obs.telescope_id}) != waveforms.end()) {
             use_waveform_readout = true;
             break;
@@ -915,6 +987,8 @@ ArrayEvent LactEventSource::get_event(int index)
         event.simulation->add_tel(obs.telescope_id, std::move(sim_camera));
         if (obs.triggered) {
             event.simulation->triggered_tels.push_back(obs.telescope_id);
+        }
+        if (obs.triggered || read_untriggered) {
             if (use_waveform_readout) {
                 Eigen::Matrix<double, -1, -1, Eigen::RowMajor> waveform = dense_waveform(obs);
                 Eigen::VectorXi gain_selection = Eigen::VectorXi::Zero(waveform.rows());

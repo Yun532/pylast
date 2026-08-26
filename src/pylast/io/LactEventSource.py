@@ -57,8 +57,10 @@ class LactEventSource:
         self._waveform_timing_loaded = False
         self._waveform_time_centers_ns = ()
         self._waveform_time_reference = ""
+        self._waveform_sample_unit = ""
         self._waveform_reference_by_event_id = {}
         self._ground_counts_by_event_id = {}
+        self._source_metadata = None
         self._input_filename = getattr(self._source, "input_filename", None)
         if self._input_filename is None and args:
             self._input_filename = str(args[0])
@@ -279,6 +281,8 @@ class LactEventSource:
                 self._waveform_time_reference = str(
                     config.time_reference
                 ).strip()
+            if config.GetBranch("sample_unit") is not None:
+                self._waveform_sample_unit = str(config.sample_unit).strip()
 
             observations = root_file.Get("observations")
             reference_branch = {
@@ -396,6 +400,67 @@ class LactEventSource:
                 self._triggered_tels_by_event_id[event_id] = triggered_tels
         return list(self._triggered_tels_by_event_id.get(event_id, ()))
 
+    def get_readout_tels(self, event_or_id):
+        """Return telescopes with saved observations, independent of trigger."""
+
+        event_id = _event_id(event_or_id)
+        if event_id is None:
+            return []
+        getter = getattr(self._source, "get_readout_tels", None)
+        if getter is not None:
+            return list(getter(event_id))
+        if not isinstance(event_or_id, int):
+            telescopes = set()
+            for container_name in ("r1", "dl0"):
+                container = getattr(event_or_id, container_name, None)
+                telescopes.update(getattr(container, "tels", {}).keys())
+            return sorted(int(telescope_id) for telescope_id in telescopes)
+        return []
+
+    def get_raw_waveform(self, event_or_id, telescope_id):
+        """Return the stored LACT ROOT waveform before mV-to-p.e. conversion."""
+
+        event_id = _event_id(event_or_id)
+        if event_id is None:
+            raise ValueError("event id is required")
+        return self._source.get_raw_waveform(event_id, int(telescope_id))
+
+    def get_source_metadata(self):
+        """Return optional exposure/response metadata from the ROOT config tree."""
+
+        if self._source_metadata is not None:
+            return dict(self._source_metadata)
+        metadata = {}
+        filename = self._input_filename
+        root_file = None
+        try:
+            import ROOT
+
+            root_file = ROOT.TFile.Open(str(filename))
+            tree = root_file.Get("config") if root_file else None
+            if tree is not None and tree.GetEntries() > 0:
+                tree.GetEntry(0)
+                for name in (
+                    "response_mode",
+                    "image_quantity",
+                    "integration_start_ns",
+                    "integration_end_ns",
+                    "integration_time_ns",
+                    "generated_time_start_ns",
+                    "generated_time_end_ns",
+                ):
+                    if tree.GetBranch(name) is not None:
+                        value = getattr(tree, name)
+                        metadata[name] = (
+                            str(value) if name in {"response_mode", "image_quantity"}
+                            else float(value)
+                        )
+        finally:
+            if root_file:
+                root_file.Close()
+        self._source_metadata = metadata
+        return dict(metadata)
+
     def get_ground_counts(self, event_or_id):
         event_id = _event_id(event_or_id)
         if event_id is None:
@@ -479,6 +544,7 @@ class LactEventSource:
         return {
             "time_centers_ns": list(self._waveform_time_centers_ns),
             "time_reference": self._waveform_time_reference,
+            "sample_unit": self._waveform_sample_unit,
             "reference_time_ns": float(reference_time),
             "absolute_time_ns": [
                 float(reference_time + center)

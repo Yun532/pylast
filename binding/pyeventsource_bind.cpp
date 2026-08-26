@@ -105,11 +105,13 @@ NB_MODULE(_pyeventsource, m){
             return fmt::format("RootEventSource(filename={})", self.input_filename);
         });
     nb::class_<LactEventSource, EventSource>(m, "LactEventSource")
-        .def(nb::init<const std::string&, int64_t, std::vector<int>, bool>(),
+        .def(nb::init<const std::string&, int64_t, std::vector<int>, bool, bool, int>(),
              nb::arg("filename"),
              nb::arg("max_events") = -1,
              nb::arg("subarray") = std::vector<int>{},
-             nb::arg("load_simulated_showers") = false)
+             nb::arg("load_simulated_showers") = false,
+             nb::arg("read_untriggered") = false,
+             nb::arg("baseline_samples") = 0)
         .def_prop_ro("shower_array", &LactEventSource::get_shower_array)
         .def("__getitem__", &LactEventSource::operator[])
         .def("__len__", [](LactEventSource& self) {
@@ -150,6 +152,10 @@ NB_MODULE(_pyeventsource, m){
             }
             return result;
         }, nb::arg("event_id"))
+        .def("get_readout_tels", &LactEventSource::get_readout_tels,
+             nb::arg("event_id"))
+        .def("get_raw_waveform", &LactEventSource::get_raw_waveform,
+             nb::arg("event_id"), nb::arg("telescope_id"))
         .def("__repr__", [](LactEventSource& self) {
             return fmt::format("LactEventSource(filename={})", self.input_filename);
         });
