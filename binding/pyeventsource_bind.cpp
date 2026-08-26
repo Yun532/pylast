@@ -1,6 +1,7 @@
 #include "EventSource.hh"
 #include "SimulationConfiguration.hh"
 #include "nanobind/nanobind.h"
+#include "nanobind/eigen/dense.h"
 #include "nanobind/stl/string.h"
 #include "nanobind/stl/vector.h"
 #include "nanobind/stl/unordered_map.h"
