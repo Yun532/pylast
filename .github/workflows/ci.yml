@@ -16,7 +16,7 @@ jobs:
     container: rootproject/root:6.32.02-ubuntu22.04
     steps:
       - name: Install build dependencies
-        run: apt-get update && apt-get install -y cmake g++ git make zlib1g-dev
+        run: apt-get update && apt-get install -y cmake g++ git make zlib1g-dev zstd
       - name: Checkout code
         uses: actions/checkout@v4
       - name: Update submodules
