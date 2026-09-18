@@ -2134,20 +2134,23 @@ class EventVisualizer:
     ):
         """Show one camera with annotated, already computed Hillas parameters.
 
-        ``tel_id`` is the actual container key, not the one-based display number.
-        The label displays ``tel_id + 1``, matching the camera overview.
+        ``tel_id`` is the one-based telescope number shown in the overview.
+        Internally it selects the event/subarray key ``tel_id - 1``.
         No cleaning or parameterization is performed here. DL0/truth displays
         use DL1 parameters; fake-image displays use simulation parameters.
         Length and width are
         one-sigma values, while the ellipse has full axes 2*length and 2*width.
         Returns ``(figure, camera_axis)``; angles retain pylast's X-to-Y convention.
         """
+        if isinstance(tel_id, (bool, np.bool_)) or not isinstance(tel_id, (int, np.integer)) or tel_id < 1:
+            raise ValueError("tel_id must be a positive integer (1-based telescope number)")
+        tel_id = int(tel_id) - 1
         if tel_id not in self.tel_geoms:
-            raise ValueError(f"Unknown tel_id {tel_id}; use a key from source.subarray.tels")
+            raise ValueError(f"Unknown tel_id {tel_id + 1}; use a telescope number shown in the camera overview")
         geom = self.tel_geoms[tel_id]
         image = _image_from_event(event, tel_id, image_level)
         if image.ndim != 1 or image.size != geom.pix_x.size:
-            raise ValueError(f"No complete {image_level} image for tel_id={tel_id}")
+            raise ValueError(f"No complete {image_level} image for tel_id={tel_id + 1}")
 
         fake = image_level in {"simulation_fake", "simulation_fake_clean"}
         container = getattr(event, "simulation" if fake else "dl1", None)

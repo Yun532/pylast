@@ -33,7 +33,7 @@ def test_detail_geometry_and_inputs(psi):
     vis, event, params = example(psi)
     image = event.dl1.tels[0].image.copy()
     mask = event.dl1.tels[0].mask.copy()
-    result = plot_image_detail(event, visualizer=vis, tel_id=0, zoom=True, show=False)
+    result = plot_image_detail(event, visualizer=vis, tel_id=1, zoom=True, show=False)
     fig, ax = result["figure"], result["axes"]
     ellipse = ax.patches[0]
     np.testing.assert_allclose(ellipse.center, [-8, 10])
@@ -57,20 +57,20 @@ def test_detail_geometry_and_inputs(psi):
 def test_empty_invalid_and_wrong_inputs():
     vis, event, params = example()
     event.dl1.tels[0].mask[:] = False
-    fig, ax = vis.plot_image_detail(event, 0, zoom=True, show=False)
+    fig, ax = vis.plot_image_detail(event, 1, zoom=True, show=False)
     assert len(ax.patches) == 0
     assert "unavailable" in ax._pylast_parameter_box.txt.get_text()
     FigureCanvasAgg(fig).draw()
     params.length = np.nan
     event.dl1.tels[0].mask[:] = True
-    fig, ax = vis.plot_image_detail(event, 0, show=False)
+    fig, ax = vis.plot_image_detail(event, 1, show=False)
     assert len(ax.patches) == 0
     FigureCanvasAgg(fig).draw()
     with pytest.raises(ValueError, match="Unknown tel_id"):
         vis.plot_image_detail(event, 99, show=False)
     event.dl1.tels[0].mask = np.ones(2, bool)
     with pytest.raises(ValueError):
-        vis.plot_image_detail(event, 0, show=False)
+        vis.plot_image_detail(event, 1, show=False)
 
 
 def test_fake_source_and_centered_image():
@@ -78,11 +78,11 @@ def test_fake_source_and_centered_image():
     params.x = params.y = params.r = 0
     params.phi = 0
     event.dl1 = None
-    fig, ax = vis.plot_image_detail(event, 0, image_level="simulation_fake_clean", cmap="gray_r", show=False)
+    fig, ax = vis.plot_image_detail(event, 1, image_level="simulation_fake_clean", cmap="gray_r", show=False)
     assert len(ax.patches) == 1
     assert "Intensity:" in ax._pylast_parameter_box.txt.get_text()
     FigureCanvasAgg(fig).draw()
-    fig, ax = vis.plot_image_detail(event, 0, image_level="simulation", show=False)
+    fig, ax = vis.plot_image_detail(event, 1, image_level="simulation", show=False)
     assert len(ax.patches) == 0  # Never silently use fake parameters on a truth image.
 
 
@@ -109,7 +109,7 @@ def test_color_scale_and_legacy_outline():
 
 def test_default_full_camera_and_parameter_box_inside_axes():
     vis, event, _ = example()
-    result = plot_image_detail(event, visualizer=vis, tel_id=0, show=False)
+    result = plot_image_detail(event, visualizer=vis, tel_id=1, show=False)
     fig, ax = result["figure"], result["axes"]
     xlim, ylim = vis._extent_cache[0]
     np.testing.assert_allclose(ax.get_xlim(), xlim)
@@ -140,7 +140,7 @@ def test_truth_metadata_and_named_overlay_lines():
     event.pointing = NS(array_altitude=1.2, array_azimuth=0.0)
     event.dl2 = NS(geometry={"HillasReconstructor": NS(
         is_valid=True, alt=1.19, az=0.11, core_x=110.0, core_y=-205.0)})
-    fig, ax = vis.plot_image_detail(event, 0, show=False)
+    fig, ax = vis.plot_image_detail(event, 1, show=False)
     parameters = ax._pylast_parameter_box.txt.get_text()
     assert parameters.startswith("Telescope 1\nPointing (array):\nZen: 21.25 deg   Az: 0.00 deg")
     assert "True" not in parameters
@@ -173,7 +173,7 @@ def test_missing_truth_is_omitted(shower):
     vis, event, _ = example()
     event.simulation = None if shower is None else NS(shower=shower)
     event.pointing = NS(array_altitude=1.2, array_azimuth=0.0)
-    fig, ax = vis.plot_image_detail(event, 0, show_ideal_position=True, show=False)
+    fig, ax = vis.plot_image_detail(event, 1, show_ideal_position=True, show=False)
     assert not hasattr(ax, "_pylast_truth_box")
     assert "Pointing (array)" in ax._pylast_parameter_box.txt.get_text()
     assert "True direction" not in ax.get_legend_handles_labels()[1]
@@ -185,7 +185,7 @@ def test_shared_camera_style_and_distinct_annotations():
     from pylast.visualize import plot_camera_image
 
     vis, event, _ = example()
-    fig, ax = vis.plot_image_detail(event, 0, show=False)
+    fig, ax = vis.plot_image_detail(event, 1, show=False)
     colors = {t.get_text(): t.get_color() for t in ax.texts}
     assert colors["length"] != colors[r"$\psi$"]
     legacy = plot_camera_image(np.array([0, 1]), np.array([0, 1]), 0.1, np.array([0, 1]))
@@ -214,7 +214,7 @@ def test_detail_boxes_avoid_signal_pixel_footprints(sign_x, sign_y):
     params.x, params.y = sign_x * 0.03, sign_y * 0.03
     event.simulation.shower = NS(energy=10, core_x=100, core_y=200, alt=1.2, az=0.1)
     event.pointing = NS(array_altitude=1.2, array_azimuth=0)
-    fig, ax = vis.plot_image_detail(event, 0, show=False)
+    fig, ax = vis.plot_image_detail(event, 1, show=False)
     FigureCanvasAgg(fig).draw()
     vertices = vis._vertices_for(geom)[camera.mask]
     points = ax.transData.transform(vertices.reshape(-1, 2)).reshape(vertices.shape)
@@ -252,7 +252,7 @@ def test_telescope_labels_match_overview_without_renumbering_data(tel_id):
 
     vis, event = numbered_example(tel_id)
     expected = f"Telescope {tel_id + 1}"
-    _, detail = vis.plot_image_detail(event, tel_id, show=False)
+    _, detail = vis.plot_image_detail(event, tel_id + 1, show=False)
     assert detail._pylast_parameter_box.txt.get_text().splitlines()[0] == expected
     _, overview = vis.plot_event(event, image_level="dl1", show=False)
     assert overview[1].texts[0].get_text() == expected
@@ -277,3 +277,23 @@ def test_interactive_sdp_uses_display_number_in_labels_and_hover():
     assert surfaces and all(trace.name == "Truth SDP T8" for trace in surfaces)
     hovers = [trace.hovertemplate for trace in fig.data if trace.hovertemplate and "SDP T" in trace.hovertemplate]
     assert hovers and all("SDP T8" in text for text in hovers)
+
+
+def test_one_based_selector_chooses_matching_camera_and_rejects_invalid_numbers():
+    from dataclasses import replace
+
+    vis, event, _ = example()
+    first = event.dl1.tels[0]
+    vis.tel_geoms[1] = replace(vis.tel_geoms[0], tel_id=1)
+    event.dl1.tels[1] = NS(image=first.image * 2, mask=first.mask,
+                            image_parameters=first.image_parameters)
+    for number in (np.int64(1), 2):
+        result = plot_image_detail(event, visualizer=vis, tel_id=number, show=False)
+        axis = result["axes"]
+        assert axis._pylast_parameter_box.txt.get_text().splitlines()[0] == f"Telescope {number}"
+        np.testing.assert_allclose(axis.collections[0].get_array().compressed(), first.image[first.mask] * number)
+    for invalid in (0, -1, 1.5, True, "1"):
+        with pytest.raises(ValueError, match="1-based telescope number"):
+            plot_image_detail(event, visualizer=vis, tel_id=invalid, show=False)
+    assert set(event.dl1.tels) == {0, 1}
+    plt.close("all")

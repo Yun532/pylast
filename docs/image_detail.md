@@ -7,7 +7,7 @@ from pylast.visualize import plot_image_detail
 result = plot_image_detail(
     event,
     source=source,
-    tel_id=0,  # actual event/subarray key, not the one-based display number
+    tel_id=1,  # Telescope 1, matching the number shown in camera overviews
     image_level="dl1",
     zoom=False,  # full camera (the default)
     output_path="image_detail.png",
@@ -15,7 +15,7 @@ result = plot_image_detail(
 fig, ax = result["figure"], result["axes"]
 ```
 
-`EventVisualizer(source).plot_image_detail(event, tel_id=0, ...)` returns
+`EventVisualizer(source).plot_image_detail(event, tel_id=1, ...)` returns
 `(figure, camera_axis)`. The quicklook function returns the same dictionary
 fields as the other quicklook helpers. `show=False` supports headless rendering.
 The default `zoom=False` shows the full camera. All parameters appear in a box
@@ -27,7 +27,7 @@ tie. This placement is computed when plotting; subsequent interactive pan/zoom
 does not reposition the boxes. If all corners contain signal, some obstruction
 may remain. `zoom=True` is an optional cropped view. `cmap="gray_r"` provides a grayscale background.
 The title uses the normal plot font at 16 pt (above the 14 pt axis labels) and reports the event
-ID. The parameter box starts with `Telescope {tel_id + 1}`, followed by pointing
+ID. The parameter box starts with `Telescope {tel_id}`, followed by pointing
 zenith and azimuth in degrees. The current Python binding exposes only array
 pointing, so this is explicitly labeled `Pointing (array)`.
 True energy, east/north core position, and true zenith/azimuth appear in a
@@ -45,13 +45,17 @@ All plot labels use the existing LACT display convention, **actual data key + 1*
 camera overview, detail, gathered cameras, array/timing views, and static and
 interactive SDP plots. For example, data key `0` is displayed as `Telescope 1`
 or `T1`; key `7` is displayed as `Telescope 8`, even if other keys are absent.
-The detail label is a display number, not a changed data ID.
+Both the public `plot_image_detail` function and the `EventVisualizer` method
+accept this **one-based display number**: `tel_id=1` selects `Telescope 1`,
+`tel_id=2` selects `Telescope 2`, and `tel_id=8` selects data key 7.
+Zero, negative and non-integer selectors are rejected. Numbers are never inferred
+from which telescopes triggered or from their position in a list.
 
-Function arguments (`tel_id`, `tel_ids`, `telescope_ids`) and returned data
-(`hillas_parameter_rows()[i]["tel_id"]`, `hillas_telescope_ids`) keep the actual
-event/subarray keys. They are never renumbered or inferred from which telescopes
-triggered. To select the telescope labeled `Telescope 2` in the camera overview,
-pass `tel_id=1`; a `tel_id` taken from the event or Hillas rows is passed unchanged.
+Event containers and returned data (`hillas_parameter_rows()[i]["tel_id"]`,
+`hillas_telescope_ids`) still contain actual data keys. When selecting from
+these records, call `plot_image_detail(..., tel_id=row["tel_id"] + 1)`.
+The existing selectors of other plotting APIs (`tel_ids`, `telescope_ids`)
+retain their data-key convention; this change applies to the detail selector.
 
 ## Data and coordinates
 
