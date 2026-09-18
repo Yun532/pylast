@@ -142,7 +142,7 @@ def test_truth_metadata_and_named_overlay_lines():
         is_valid=True, alt=1.19, az=0.11, core_x=110.0, core_y=-205.0)})
     fig, ax = vis.plot_image_detail(event, 0, show=False)
     parameters = ax._pylast_parameter_box.txt.get_text()
-    assert parameters.startswith("Telescope ID: 0\nPointing (array):\nZen: 21.25 deg   Az: 0.00 deg")
+    assert parameters.startswith("Telescope 1\nPointing (array):\nZen: 21.25 deg   Az: 0.00 deg")
     assert "True" not in parameters
     text = ax._pylast_truth_box.txt.get_text()
     assert "True energy: 12.50 TeV" in text
@@ -227,3 +227,53 @@ def test_detail_boxes_avoid_signal_pixel_footprints(sign_x, sign_y):
         assert not np.any(covered)
         assert ax.bbox.contains(box.x0, box.y0) and ax.bbox.contains(box.x1, box.y1)
     plt.close(fig)
+
+
+def numbered_example(tel_id):
+    vis, event, _ = example()
+    geom = vis.tel_geoms.pop(0)
+    geom.tel_id = tel_id
+    vis.tel_geoms[tel_id] = geom
+    for container in (event.dl0, event.dl1, event.simulation):
+        container.tels[tel_id] = container.tels.pop(0)
+    event.simulation.triggered_tels = [tel_id]
+    event.simulation.shower = NS(energy=10, core_x=100, core_y=200, alt=1.2,
+                                 az=0.1, x_max=400, h_first_int=20000)
+    event.pointing = NS(array_altitude=1.2, array_azimuth=0)
+    event.dl2 = None
+    event.dl1.tels[tel_id].image_parameters.extra = NS(miss=0)
+    return vis, event
+
+
+@pytest.mark.parametrize("tel_id", [0, 7])
+def test_telescope_labels_match_overview_without_renumbering_data(tel_id):
+    from pylast.visualize import hillas_parameter_rows
+    from pylast.visualize.visualize import plot_event as legacy_plot_event
+
+    vis, event = numbered_example(tel_id)
+    expected = f"Telescope {tel_id + 1}"
+    _, detail = vis.plot_image_detail(event, tel_id, show=False)
+    assert detail._pylast_parameter_box.txt.get_text().splitlines()[0] == expected
+    _, overview = vis.plot_event(event, image_level="dl1", show=False)
+    assert overview[1].texts[0].get_text() == expected
+    _, sdp = vis.plot_event_sdp_planes_3d(event, image_level="dl1", show=False)
+    assert f"T{tel_id + 1}" in [text.get_text() for text in sdp.texts]
+    geom = vis.tel_geoms[tel_id]
+    legacy = legacy_plot_event(geom.pix_x, geom.pix_y, geom.pix_size[0], event, plot_true=False)
+    assert legacy.texts[0].get_text().startswith(expected + " Intensity:")
+    assert hillas_parameter_rows(event)[0]["tel_id"] == tel_id
+    assert list(event.dl1.tels) == [tel_id]
+    plt.close("all")
+
+
+def test_interactive_sdp_uses_display_number_in_labels_and_hover():
+    pytest.importorskip("plotly")
+    vis, event = numbered_example(7)
+    fig = vis.plot_event_sdp_planes_3d_interactive(event, image_level="dl1")
+    telescope_traces = [trace for trace in fig.data if trace.text is not None]
+    assert len(telescope_traces) == 2
+    assert all(list(trace.text) == ["T8"] for trace in telescope_traces)
+    surfaces = [trace for trace in fig.data if trace.type == "surface"]
+    assert surfaces and all(trace.name == "Truth SDP T8" for trace in surfaces)
+    hovers = [trace.hovertemplate for trace in fig.data if trace.hovertemplate and "SDP T" in trace.hovertemplate]
+    assert hovers and all("SDP T8" in text for text in hovers)

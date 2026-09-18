@@ -1700,7 +1700,7 @@ class EventVisualizer:
             tel_ground = np.array([geom.pos_x, geom.pos_y, 0.0], dtype=float)
             color = colors[index]
             ax.scatter([geom.pos_x], [geom.pos_y], [0.0], color=color, s=45, edgecolor="black", linewidth=0.4)
-            ax.text(geom.pos_x, geom.pos_y, 0.0, f"T{int(tel_id)}", fontsize=8, color=color)
+            ax.text(geom.pos_x, geom.pos_y, 0.0, f"T{int(tel_id) + 1}", fontsize=8, color=color)
             all_x.append(geom.pos_x)
             all_y.append(geom.pos_y)
 
@@ -1841,7 +1841,7 @@ class EventVisualizer:
 
         all_tel_x = [geom.pos_x for geom in self.tel_geoms.values()]
         all_tel_y = [geom.pos_y for geom in self.tel_geoms.values()]
-        all_tel_names = [f"T{tel_id}" for tel_id in self.tel_geoms]
+        all_tel_names = [f"T{tel_id + 1}" for tel_id in self.tel_geoms]
         all_x.extend(all_tel_x)
         all_y.extend(all_tel_y)
         traces.append(
@@ -1865,7 +1865,7 @@ class EventVisualizer:
                 continue
             active_x.append(geom.pos_x)
             active_y.append(geom.pos_y)
-            active_text.append(f"T{int(tel_id)}")
+            active_text.append(f"T{int(tel_id) + 1}")
             active_color.append(palette[index % len(palette)])
             all_x.append(geom.pos_x)
             all_y.append(geom.pos_y)
@@ -1931,14 +1931,14 @@ class EventVisualizer:
                         x=surf[..., 0].tolist(),
                         y=surf[..., 1].tolist(),
                         z=surf[..., 2].tolist(),
-                        name=f"{legend_prefix} T{int(tel_id)}",
+                        name=f"{legend_prefix} T{int(tel_id) + 1}",
                         legendgroup=group_prefix,
                         showscale=False,
                         showlegend=not family_added,
                         opacity=surface_opacity,
                         colorscale=[[0.0, color], [1.0, color]],
                         hovertemplate=(
-                            f"{legend_prefix} T{int(tel_id)}<br>"
+                            f"{legend_prefix} T{int(tel_id) + 1}<br>"
                             "East=%{x:.1f} m<br>North=%{y:.1f} m<br>Height=%{z:.1f} m<extra></extra>"
                         ),
                     )
@@ -1955,7 +1955,7 @@ class EventVisualizer:
                         legendgroup=group_prefix,
                         showlegend=False,
                         line=dict(color=color, width=4, dash=line_dash),
-                        hovertemplate=f"{legend_prefix} T{int(tel_id)} ground line<extra></extra>",
+                        hovertemplate=f"{legend_prefix} T{int(tel_id) + 1} ground line<extra></extra>",
                     )
                 )
                 all_x.extend([line_a[0], line_b[0], float(np.min(surf[..., 0])), float(np.max(surf[..., 0]))])
@@ -2135,6 +2135,7 @@ class EventVisualizer:
         """Show one camera with annotated, already computed Hillas parameters.
 
         ``tel_id`` is the actual container key, not the one-based display number.
+        The label displays ``tel_id + 1``, matching the camera overview.
         No cleaning or parameterization is performed here. DL0/truth displays
         use DL1 parameters; fake-image displays use simulation parameters.
         Length and width are
@@ -2218,7 +2219,7 @@ class EventVisualizer:
                 rows.append((attr.capitalize(), f"{value:.3f}" if np.isfinite(value) else "n/a"))
         else:
             rows.append(("Hillas", "unavailable / invalid"))
-        text = [f"Telescope ID: {tel_id}"]
+        text = [f"Telescope {tel_id + 1}"]
         pointing = getattr(event, "pointing", None)
         alt = getattr(pointing, "array_altitude", None)
         az = getattr(pointing, "array_azimuth", None)

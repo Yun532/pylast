@@ -27,7 +27,7 @@ tie. This placement is computed when plotting; subsequent interactive pan/zoom
 does not reposition the boxes. If all corners contain signal, some obstruction
 may remain. `zoom=True` is an optional cropped view. `cmap="gray_r"` provides a grayscale background.
 The title uses the normal plot font at 16 pt (above the 14 pt axis labels) and reports the event
-ID. The parameter box starts with the actual telescope ID, followed by pointing
+ID. The parameter box starts with `Telescope {tel_id + 1}`, followed by pointing
 zenith and azimuth in degrees. The current Python binding exposes only array
 pointing, so this is explicitly labeled `Pointing (array)`.
 True energy, east/north core position, and true zenith/azimuth appear in a
@@ -38,6 +38,20 @@ no visible border. Image-layer/source
 headings and explanatory footer lines are omitted.
 `show_ideal_position=True` and `show_reco_position=True` reuse existing position
 overlays. The default reconstructor is `HillasReconstructor`.
+
+## Telescope numbering
+
+All plot labels use the existing LACT display convention, **actual data key + 1**:
+camera overview, detail, gathered cameras, array/timing views, and static and
+interactive SDP plots. For example, data key `0` is displayed as `Telescope 1`
+or `T1`; key `7` is displayed as `Telescope 8`, even if other keys are absent.
+The detail label is a display number, not a changed data ID.
+
+Function arguments (`tel_id`, `tel_ids`, `telescope_ids`) and returned data
+(`hillas_parameter_rows()[i]["tel_id"]`, `hillas_telescope_ids`) keep the actual
+event/subarray keys. They are never renumbered or inferred from which telescopes
+triggered. To select the telescope labeled `Telescope 2` in the camera overview,
+pass `tel_id=1`; a `tel_id` taken from the event or Hillas rows is passed unchanged.
 
 ## Data and coordinates
 

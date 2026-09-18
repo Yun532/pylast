@@ -199,7 +199,7 @@ def plot_event(pix_x:np.ndarray, pix_y:np.ndarray, pix_size:float, event, plot_t
             mask = dl1_camera.mask
             ax = plot_camera_image(pix_x, pix_y, pix_size, pe, mask, pixel_shape=pix_shape)
             image_parameter = dl1_camera.image_parameters
-            label_string = f'Camera {tel_id} Intensity: {image_parameter.hillas.intensity:.2f} Miss: {np.degrees(image_parameter.extra.miss):.3f}'
+            label_string = f'Telescope {tel_id + 1} Intensity: {image_parameter.hillas.intensity:.2f} Miss: {np.degrees(image_parameter.extra.miss):.3f}'
             plot_hillas_circle(ax, image_parameter.hillas.x, image_parameter.hillas.y, image_parameter.hillas.length, image_parameter.hillas.width, image_parameter.hillas.psi)
             ax.text(0.05, 0.95, label_string, transform=ax.transAxes, verticalalignment='top', horizontalalignment='left')
             ax.plot(true_camera_y, true_camera_x, 'r*', markersize=10)

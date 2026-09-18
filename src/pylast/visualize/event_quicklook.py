@@ -379,7 +379,8 @@ def plot_image_detail(
 ):
     """Detailed Hillas view of one loaded image; run ImageProcessor first.
 
-    ``tel_id`` is the actual event/subarray key. Image-level aliases match the
+    ``tel_id`` is the actual event/subarray key; the plot labels it as
+    ``Telescope {tel_id + 1}``, matching the camera overview. Image-level aliases match the
     other quicklook helpers. Does not recalculate the stored Hillas parameters.
     """
     if event is None:
@@ -829,7 +830,11 @@ def plot_root_event_cameras(
 
 
 def hillas_parameter_rows(event, image_level: str = "dl1"):
-    """Return stored per-telescope Hillas parameters for an image level."""
+    """Return stored Hillas parameters; ``tel_id`` retains the actual data key.
+
+    Plot labels display ``tel_id + 1``. The returned keys can be passed directly
+    to ``plot_image_detail`` without conversion.
+    """
 
     rows = []
     if image_level in {"simulation_fake", "simulation_fake_clean"}:
