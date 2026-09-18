@@ -370,6 +370,32 @@ def plot_event_sdp_planes_3d_interactive(
     )
 
 
+def plot_image_detail(
+    event, *, tel_id: int, source=None, visualizer=None,
+    image_level: str = "dl1", zoom: bool = False, cmap: str = "plasma",
+    show_ideal_position: bool = False, show_reco_position: bool = False,
+    reconstructor: str = "HillasReconstructor",
+    output_path: str | PathLike[str] | None = None, show: bool | None = None,
+):
+    """Detailed Hillas view of one loaded image; run ImageProcessor first.
+
+    ``tel_id`` is the actual event/subarray key. Image-level aliases match the
+    other quicklook helpers. Does not recalculate the stored Hillas parameters.
+    """
+    if event is None:
+        raise ValueError("event is required")
+    visualizer = _visualizer_from(source=source, visualizer=visualizer)
+    figure, axis = visualizer.plot_image_detail(
+        event, tel_id=tel_id, image_level=_image_level_from_type(image_level=image_level),
+        zoom=zoom, cmap=cmap, show_ideal_position=show_ideal_position,
+        show_reco_position=show_reco_position, reconstructor=reconstructor,
+        output_path=str(output_path) if output_path is not None else None,
+        show=output_path is None if show is None else show,
+    )
+    return {"event": event, "visualizer": visualizer, "figure": figure,
+            "axes": axis, "path": Path(output_path) if output_path is not None else None}
+
+
 def plot_event_cameras(
     event=None,
     *,

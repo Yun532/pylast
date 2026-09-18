@@ -10,6 +10,7 @@ already loaded pylast event containers.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from itertools import product
 from typing import Dict, Iterable, Mapping, Optional, Sequence, Tuple
 
 import matplotlib
@@ -17,8 +18,10 @@ import matplotlib.colors as mcolors
 import matplotlib.pyplot as plt
 import numpy as np
 from matplotlib.collections import PolyCollection
+from matplotlib import patheffects
 from matplotlib.colors import Normalize
 from matplotlib.patches import Ellipse
+from matplotlib.offsetbox import AnchoredText
 from matplotlib.ticker import FormatStrFormatter, MaxNLocator
 from mpl_toolkits.axes_grid1 import make_axes_locatable
 
@@ -31,6 +34,52 @@ matplotlib.rcParams["agg.path.chunksize"] = 20000
 
 
 _ROOT_POINTING_CACHE: Dict[str, Optional[float]] = {}
+_CAMERA_BACKGROUND = "#f0f1f3"
+_CAMERA_LABEL_SIZE = 14
+_CAMERA_TICK_SIZE = 12
+
+
+def _style_camera_axis(ax):
+    ax.xaxis.label.set_fontsize(_CAMERA_LABEL_SIZE)
+    ax.yaxis.label.set_fontsize(_CAMERA_LABEL_SIZE)
+    ax.tick_params(axis="both", labelsize=_CAMERA_TICK_SIZE)
+
+
+def _style_camera_colorbar(colorbar):
+    colorbar.set_label("Charge [p.e.]", size=_CAMERA_LABEL_SIZE)
+    colorbar.ax.tick_params(labelsize=_CAMERA_TICK_SIZE)
+
+
+def _place_detail_boxes(ax, boxes, vertices, image):
+    """Choose corner positions using actual box and pixel footprints at draw size."""
+    ax.figure.draw_without_rendering()
+    points = ax.transData.transform(vertices.reshape(-1, 2)).reshape(vertices.shape)
+    pixel_min, pixel_max = points.min(axis=1), points.max(axis=1)
+    charge = np.abs(np.ma.filled(np.ma.masked_invalid(image), 0))
+    annotations = [text.get_window_extent() for text in ax.texts if text.get_text()]
+    candidates = []
+    for box in boxes:
+        options = []
+        for location in (2, 1, 3, 4):  # upper left/right, lower left/right
+            box.loc = location
+            bounds = box.get_window_extent().padded(ax.figure.dpi * 6 / 72)
+            covered = ((pixel_min[:, 0] < bounds.x1) & (pixel_max[:, 0] > bounds.x0)
+                       & (pixel_min[:, 1] < bounds.y1) & (pixel_max[:, 1] > bounds.y0))
+            options.append((location, bounds, charge[covered].sum(),
+                            sum(bounds.overlaps(label) for label in annotations)))
+        candidates.append(options)
+
+    def score(positions):
+        overlap = 0.0
+        for i, (_, bounds, _, _) in enumerate(positions):
+            for _, other, _, _ in positions[i + 1:]:
+                overlap += (max(0, min(bounds.x1, other.x1) - max(bounds.x0, other.x0))
+                            * max(0, min(bounds.y1, other.y1) - max(bounds.y0, other.y0)))
+        return overlap, sum(p[2] for p in positions), sum(p[3] for p in positions)
+
+    best = min(product(*candidates), key=score)
+    for box, position in zip(boxes, best):
+        box.loc = position[0]
 
 
 @dataclass
@@ -61,12 +110,38 @@ class EventData:
 
 @dataclass
 class HillasParameters:
+    """Display geometry: full ellipse axes and centroid in cm, psi in degrees."""
     length: float
     width: float
     psi: float
     cog_x: float
     cog_y: float
     focal_length: float
+
+
+def _add_hillas_outline(ax, x, y, length, width, psi, *, centroid_size=3):
+    """Draw an ellipse in plot coordinates; length/width are full diameters."""
+    if not np.all(np.isfinite([x, y, length, width, psi])) or min(length, width) <= 0:
+        return
+    ellipse = Ellipse((x, y), width=length, height=width, angle=psi,
+                      edgecolor="r", facecolor="none", lw=2,
+                      zorder=10000)
+    ax.add_patch(ellipse)
+    ax.plot(x, y, marker="o", linestyle="None", color="r", ms=centroid_size, zorder=10005)
+
+
+def _camera_legend(ax):
+    """Explain only overlays actually drawn; deduplicate gathered telescopes."""
+    handles, labels = ax.get_legend_handles_labels()
+    if handles:
+        unique = dict(zip(labels, handles))
+        order = [label for label in ("Hillas major axis", "True SDP", "Reconstructed SDP",
+                                     "True direction", "Reconstructed direction") if label in unique]
+        order += [label for label in unique if label not in order]
+        legend = ax.legend([unique[label] for label in order], order,
+                           loc="upper right", fontsize=8, framealpha=0.85,
+                           edgecolor="none", handlelength=3.2)
+        legend.set_zorder(10020)
 
 
 def _to_numpy(value, dtype=float) -> np.ndarray:
@@ -2042,6 +2117,7 @@ class EventVisualizer:
                 self._draw_reco_position(axes[index], event, reconstructor=reconstructor)
             if show_reco_sdp:
                 self._draw_reco_sdp_line(axes[index], event, tel_id, reconstructor=reconstructor)
+            _camera_legend(axes[index])
 
         for ax in axes[len(tel_ids) + 1 :]:
             ax.axis("off")
@@ -2049,6 +2125,192 @@ class EventVisualizer:
         fig.tight_layout(pad=1.0)
         self._finish(fig, output_path, show)
         return fig, axes
+
+    def plot_image_detail(
+        self, event, tel_id: int, output_path: Optional[str] = None,
+        image_level: str = "dl1", zoom: bool = False, cmap: str = "plasma",
+        show_ideal_position: bool = False, show_reco_position: bool = False,
+        reconstructor: str = "HillasReconstructor", show: bool = True,
+    ):
+        """Show one camera with annotated, already computed Hillas parameters.
+
+        ``tel_id`` is the actual container key, not the one-based display number.
+        No cleaning or parameterization is performed here. DL0/truth displays
+        use DL1 parameters; fake-image displays use simulation parameters.
+        Length and width are
+        one-sigma values, while the ellipse has full axes 2*length and 2*width.
+        Returns ``(figure, camera_axis)``; angles retain pylast's X-to-Y convention.
+        """
+        if tel_id not in self.tel_geoms:
+            raise ValueError(f"Unknown tel_id {tel_id}; use a key from source.subarray.tels")
+        geom = self.tel_geoms[tel_id]
+        image = _image_from_event(event, tel_id, image_level)
+        if image.ndim != 1 or image.size != geom.pix_x.size:
+            raise ValueError(f"No complete {image_level} image for tel_id={tel_id}")
+
+        fake = image_level in {"simulation_fake", "simulation_fake_clean"}
+        container = getattr(event, "simulation" if fake else "dl1", None)
+        camera = getattr(container, "tels", {}).get(tel_id)
+        params = getattr(getattr(camera, "image_parameters", None), "hillas", None)
+        mask = getattr(camera, "fake_image_mask" if fake else "mask", None)
+        if mask is not None:
+            mask = np.asarray(mask, dtype=bool)
+            if mask.shape != image.shape:
+                raise ValueError("Image and Hillas cleaning mask must have the same shape")
+        valid = params is not None and np.all(np.isfinite([
+            params.x, params.y, params.length, params.width, params.psi, params.intensity,
+        ])) and min(params.length, params.width, params.intensity) > 0
+        valid = valid and (mask is None or np.any(mask))
+        hillas = self._scale_hillas(tel_id, params) if valid else None
+
+        fig, ax = plt.subplots(figsize=(11, 10))
+        norm, colors = self._image_norm(image)
+        if cmap != "plasma":
+            colors = matplotlib.colormaps[cmap].with_extremes(
+                under=_CAMERA_BACKGROUND, bad=_CAMERA_BACKGROUND)
+        clean = image_level in {"dl1", "simulation_fake_clean"}
+        shown_image = np.ma.masked_invalid(image)
+        if clean and mask is not None:
+            shown_image = np.ma.masked_where(~mask, shown_image)
+        self._draw_camera_image(ax, geom, shown_image, norm, colors)
+
+        if zoom:
+            selected = np.isfinite(image) & (image > 0)
+            if mask is not None:
+                selected &= mask
+            if np.any(selected):
+                xx, yy = _camera_to_plot_xy(geom.pix_x[selected], geom.pix_y[selected])
+                xx, yy = np.r_[xx, 0.0], np.r_[yy, 0.0]
+                if hillas is not None:
+                    cx, cy = _camera_to_plot_xy(hillas.cog_x, hillas.cog_y)
+                    xx = np.r_[xx, cx - hillas.length, cx + hillas.length]
+                    yy = np.r_[yy, cy - hillas.length, cy + hillas.length]
+                pad = max(float(np.max(geom.pix_size)) * 2, 0.18 * max(np.ptp(xx), np.ptp(yy)))
+                ax.set_xlim(xx.min() - pad, xx.max() + pad)
+                ax.set_ylim(yy.min() - pad, yy.max() + pad)
+
+        if hillas is not None:
+            self._draw_hillas_ellipse(ax, hillas, centroid_size=7)
+            ax.patches[-1].set_linewidth(2.8)
+            ax.lines[-1].set_linewidth(2.0)
+            self._annotate_hillas(ax, hillas, params)
+        ax.plot(0, 0, marker="+", color="#6c568c", ms=14, mew=2.5, zorder=10003)
+        center_at_right = -ax.get_xlim()[0] / np.ptp(ax.get_xlim()) > 0.75
+        ax.annotate("Camera center", (0, 0), xytext=(-8 if center_at_right else 8, -17),
+                    textcoords="offset points", ha="right" if center_at_right else "left",
+                    fontsize=12, fontweight="bold", color="#6c568c", zorder=10004)
+        if show_ideal_position:
+            self._draw_ideal_position(ax, event)
+        if show_reco_position:
+            self._draw_reco_position(ax, event, reconstructor=reconstructor)
+
+        n_clean = str(np.count_nonzero(mask)) if mask is not None else "unavailable"
+        rows = [("Selected pixels", n_clean)]
+        if hillas is not None:
+            rows += [("Intensity", f"{params.intensity:,.1f} p.e.")]
+            for label, attr in [("Centroid X", "x"), ("Centroid Y", "y"),
+                                ("Length (1 sigma)", "length"), ("Width (1 sigma)", "width"),
+                                ("Psi", "psi"), ("r", "r"), ("Phi", "phi")]:
+                value = getattr(params, attr, np.nan)
+                rows.append((label, f"{np.degrees(value):.3f} deg" if np.isfinite(value) else "n/a"))
+            for attr in ("skewness", "kurtosis"):
+                value = getattr(params, attr, np.nan)
+                rows.append((attr.capitalize(), f"{value:.3f}" if np.isfinite(value) else "n/a"))
+        else:
+            rows.append(("Hillas", "unavailable / invalid"))
+        text = [f"Telescope ID: {tel_id}"]
+        pointing = getattr(event, "pointing", None)
+        alt = getattr(pointing, "array_altitude", None)
+        az = getattr(pointing, "array_azimuth", None)
+        if all(v is not None and np.isfinite(v) for v in (alt, az)):
+            text += ["Pointing (array):",
+                     f"Zen: {90 - np.degrees(alt):.2f} deg   Az: {np.degrees(az) % 360:.2f} deg"]
+        truth = []
+        shower = getattr(getattr(event, "simulation", None), "shower", None)
+        energy = getattr(shower, "energy", None)
+        if energy is not None and np.isfinite(energy) and energy > 0:
+            truth.append(f"True energy: {energy:.2f} TeV")
+        core = [getattr(shower, k, np.nan) for k in ("core_x", "core_y")]
+        if all(v is not None and np.isfinite(v) for v in core):
+            east, north = _ground_to_plot_xy(*core)
+            truth += [f"True core east: {east:.1f} m", f"True core north: {north:.1f} m"]
+        alt, az = (getattr(shower, k, None) for k in ("alt", "az"))
+        if all(v is not None and np.isfinite(v) for v in (alt, az)):
+            truth += [f"True zenith: {90 - np.degrees(alt):.2f} deg",
+                      f"True azimuth: {np.degrees(az) % 360:.2f} deg"]
+        text += [""] + [f"{label}: {value}" for label, value in rows]
+        boxes = [(text, "_pylast_parameter_box")]
+        if truth:
+            boxes.append((truth, "_pylast_truth_box"))
+        artists = []
+        for lines, attribute in boxes:
+            box = AnchoredText("\n".join(lines), loc="upper left",
+                               prop=dict(size=10, linespacing=1.35),
+                               frameon=True, borderpad=0.9, pad=0.65)
+            box.patch.set(facecolor="white", edgecolor="none", alpha=0.72)
+            box.set_zorder(10010)
+            ax.add_artist(box)
+            setattr(ax, attribute, box)
+            artists.append(box)
+        ax.set_title(f"LACT image event_id={_event_id(event)}", fontsize=16, pad=44)
+        fig.tight_layout()
+        _place_detail_boxes(ax, artists, self._vertices_for(geom), shown_image)
+        self._finish(fig, output_path, show)
+        return fig, ax
+
+    def _annotate_hillas(self, ax, hillas, params):
+        """Annotate in canonical camera coordinates, then swap to plot Y/X."""
+        center = np.array(_camera_to_plot_xy(hillas.cog_x, hillas.cog_y))
+        psi = float(params.psi)
+        major = np.array([np.sin(psi), np.cos(psi)])
+        minor = np.array([np.cos(psi), -np.sin(psi)])
+        span = min(np.ptp(ax.get_xlim()), np.ptp(ax.get_ylim()))
+        halo = [patheffects.Stroke(linewidth=3.5, foreground="white"), patheffects.Normal()]
+        gap = max(hillas.width * 0.35, span * 0.025)
+        # Offset dimension lines outside the ellipse. Each measures one sigma;
+        # faint extension lines connect them to the corresponding semi-axis.
+        for name, size, direction, outward, offset, color in [
+            ("length", hillas.length / 2, major, -minor,
+             -minor * (hillas.width / 2 + gap), "#0072B2"),
+            ("width", hillas.width / 2, minor, -major,
+             -major * (hillas.length / 2 + gap), "#009E73"),
+        ]:
+            start = center + offset
+            end = start + size * direction
+            for anchor in (center, center + size * direction):
+                tip = anchor + offset * 1.08
+                ax.plot([anchor[0], tip[0]], [anchor[1], tip[1]], color=color,
+                        lw=1.1, alpha=0.65, zorder=10001)
+            ax.annotate("", xy=end, xytext=start, zorder=10003,
+                        arrowprops=dict(arrowstyle="|-|", color=color, lw=2.2, shrinkA=0, shrinkB=0))
+            angle = (np.degrees(np.arctan2(direction[1], direction[0])) + 90) % 180 - 90
+            label_xy = (start + end) / 2 + outward * gap * 0.75
+            ax.text(*label_xy, name, rotation=angle, rotation_mode="anchor",
+                    ha="center", va="center", fontsize=14, fontweight="bold", color=color,
+                    zorder=10004, path_effects=halo)
+        ax.annotate("COG", center, xytext=(-14, -19), textcoords="offset points",
+                    ha="right", fontsize=12, fontweight="bold", color="r", zorder=10004, path_effects=halo)
+        radius = float(np.hypot(*center))
+        if radius > 1e-12:
+            ax.plot([0, center[0]], [0, center[1]], color="#6c568c", ls=":", lw=2.2,
+                    zorder=9999, path_effects=halo)
+            ax.annotate("r", center * 0.45,
+                        xytext=(10, 12), textcoords="offset points", ha="left",
+                        color="#6c568c", fontsize=14, fontweight="bold", zorder=10004, path_effects=halo)
+        # Sampling canonical angles also handles negative angles without a 360-degree sweep.
+        arcs = [(center, psi, min(hillas.length * 0.65, span * 0.12), "psi", "#b66a00")]
+        if radius > 1e-12:
+            arcs.append((np.zeros(2), np.arctan2(params.y, params.x),
+                         min(radius * 0.38, span * 0.10), "phi", "#6c568c"))
+        for origin, angle, arc_r, label, color in arcs:
+            theta = np.linspace(0, angle, 80)
+            ax.plot(origin[0] + arc_r * np.sin(theta), origin[1] + arc_r * np.cos(theta),
+                    color=color, lw=2.0, zorder=10001, path_effects=halo)
+            ax.plot([origin[0], origin[0]], [origin[1], origin[1] + arc_r * 1.2],
+                    color=color, ls=":", lw=1.4, zorder=10001)
+            point = origin + arc_r * 1.24 * np.array([np.sin(angle / 2), np.cos(angle / 2)])
+            ax.text(*point, f"$\\{label}$", color=color, fontsize=16, fontweight="bold", ha="center",
+                    va="center", zorder=10004, path_effects=halo)
 
     def plot_cleaned_event(self, event, output_path: Optional[str] = None, show_hillas: bool = True, show: bool = True):
         return self.plot_event(
@@ -2118,8 +2380,9 @@ class EventVisualizer:
         caxes = []
         if show_colorbar:
             divider = make_axes_locatable(ax)
-            for _ in tel_ids:
-                caxes.append(divider.append_axes("right", size="2%", pad=0.3))
+            for index, _ in enumerate(tel_ids):
+                pad = 1.15 if index == 0 and self.enable_secondary_axes else 0.9
+                caxes.append(divider.append_axes("right", size="2%", pad=pad))
 
         for index, tel_id in enumerate(tel_ids):
             geom = self.tel_geoms[tel_id]
@@ -2129,12 +2392,11 @@ class EventVisualizer:
                     image = image.copy()
                     image[image <= zero_eps] = 0.0
                 max_value = max(float(np.max(image)) if np.any(image > 0) else 1.0, 1.0)
-                bounds = [0, 1] + np.linspace(1, max_value, 256).tolist()
-                norm = mcolors.BoundaryNorm(bounds, cmap.N)
+                norm, _ = self._image_norm(image)
                 verts = self._vertices_for(geom)
                 pc = PolyCollection(
                     verts,
-                    array=image,
+                    array=np.ma.masked_invalid(np.ma.masked_equal(image, 0)),
                     cmap=cmap,
                     norm=norm,
                     edgecolors="none",
@@ -2157,7 +2419,9 @@ class EventVisualizer:
                 if show_colorbar:
                     sm = plt.cm.ScalarMappable(cmap=cmap, norm=norm)
                     sm.set_array([])
-                    plt.colorbar(sm, cax=caxes[index], label=f"Tel {tel_id + 1}", orientation="vertical")
+                    colorbar = plt.colorbar(sm, cax=caxes[index], orientation="vertical")
+                    _style_camera_colorbar(colorbar)
+                    caxes[index].set_title(f"Tel {tel_id + 1}", fontsize=_CAMERA_TICK_SIZE)
 
             if show_hillas and not only_image and tel_id in hillas:
                 self._draw_hillas_ellipse(ax, hillas[tel_id])
@@ -2172,6 +2436,8 @@ class EventVisualizer:
         if show_reco_sdp:
             for tel_id in tel_ids:
                 self._draw_reco_sdp_line(ax, event, tel_id, reconstructor=reconstructor)
+
+        _camera_legend(ax)
 
         fig.tight_layout(pad=1.0)
         self._finish(fig, output_path, show)
@@ -2280,11 +2546,13 @@ class EventVisualizer:
         return "\n".join(lines)
 
     def _image_norm(self, image: np.ndarray):
-        max_value = max(float(np.max(image)) if image.size else 1.0, 1.0)
-        colors = [(1, 1, 1, 1)] + plt.cm.plasma(np.linspace(0, 1, 256)).tolist()
-        cmap = mcolors.ListedColormap(colors)
-        bounds = [0, 1] + np.linspace(1, max_value, 256).tolist()
-        return mcolors.BoundaryNorm(bounds, cmap.N), cmap
+        finite = np.asarray(image)[np.isfinite(image)]
+        max_value = max(float(finite.max()) if finite.size else 1.0, 1.0)
+        min_value = min(float(finite.min()) if finite.size else 0.0, 0.0)
+        cmap = plt.cm.plasma.with_extremes(under=_CAMERA_BACKGROUND, bad=_CAMERA_BACKGROUND)
+        # Shade empty pixels without discarding positive sub-photoelectron charge.
+        vmin = np.finfo(float).eps * max_value if min_value == 0 else min_value
+        return Normalize(vmin=vmin, vmax=max_value), cmap
 
     def _vertices_for(self, tel_geom: TelescopeGeometry) -> np.ndarray:
         key = tel_geom.tel_id
@@ -2320,7 +2588,7 @@ class EventVisualizer:
         verts = self._vertices_for(tel_geom)
         pc = PolyCollection(
             verts,
-            array=np.asarray(image, dtype=float),
+            array=np.ma.masked_invalid(np.ma.masked_equal(np.ma.asarray(image, dtype=float), 0)),
             cmap=cmap,
             norm=norm,
             edgecolor=self.edge_color if self.outline_pixels else "none",
@@ -2331,14 +2599,14 @@ class EventVisualizer:
         self._format_camera_axes(ax, tel_geom)
         if add_colorbar:
             divider = make_axes_locatable(ax)
-            cax = divider.append_axes("right", size="5%", pad=0.6)
+            cax = divider.append_axes("right", size="5%", pad=1.15 if self.enable_secondary_axes else 0.15)
             sm = plt.cm.ScalarMappable(cmap=cmap, norm=norm)
             sm.set_array([])
-            plt.colorbar(sm, cax=cax, label="PE")
+            _style_camera_colorbar(plt.colorbar(sm, cax=cax))
 
     def _draw_camera_frame(self, ax, tel_geom: TelescopeGeometry, edgecolor=(0, 0, 0, 0.35), lw: float = 0.25, zorder: int = 1):
         verts = self._vertices_for(tel_geom)
-        pc = PolyCollection(verts, facecolors="none", edgecolors=edgecolor, linewidth=lw, rasterized=False, zorder=zorder)
+        pc = PolyCollection(verts, facecolors=_CAMERA_BACKGROUND, edgecolors=edgecolor, linewidth=lw, rasterized=False, zorder=zorder)
         ax.add_collection(pc)
         self._format_camera_axes(ax, tel_geom)
 
@@ -2349,6 +2617,7 @@ class EventVisualizer:
         ax.set_aspect("equal")
         ax.set_xlabel("Azimuth-like camera Y (cm)")
         ax.set_ylabel("Elevation-like camera X (cm)")
+        _style_camera_axis(ax)
         if self.enable_secondary_axes and not hasattr(ax, "_pylast_secondary_axes_added"):
             secax_x = ax.secondary_xaxis(
                 "top",
@@ -2366,12 +2635,13 @@ class EventVisualizer:
                 ),
             )
             secax_y.set_ylabel("Elevation offset (degrees)")
+            _style_camera_axis(secax_x)
+            _style_camera_axis(secax_y)
             ax._pylast_secondary_axes_added = True
 
     def _transparent_zero_cmap(self):
         if self._transparent_plasma is None:
-            base = plt.cm.plasma(np.linspace(0, 1, 256))
-            self._transparent_plasma = mcolors.ListedColormap([(0, 0, 0, 0.0)] + [tuple(rgba) for rgba in base])
+            self._transparent_plasma = plt.cm.plasma.with_extremes(under=(0, 0, 0, 0), bad=(0, 0, 0, 0))
         return self._transparent_plasma
 
     def _get_hillas_parameters(
@@ -2438,20 +2708,13 @@ class EventVisualizer:
             focal_length=geom.focal_length,
         )
 
-    def _draw_hillas_ellipse(self, ax, hillas: HillasParameters):
+    def _draw_hillas_ellipse(self, ax, hillas: HillasParameters, *, centroid_size=3):
         plot_cog_x, plot_cog_y = _camera_to_plot_xy(hillas.cog_x, hillas.cog_y)
-        ellipse = Ellipse(
-            xy=(plot_cog_x, plot_cog_y),
-            width=hillas.length,
-            height=hillas.width,
-            angle=90.0 - hillas.psi,
-            edgecolor="r",
-            facecolor="none",
-            lw=2,
-            zorder=10000,
-        )
-        ax.add_patch(ellipse)
-        ax.plot(plot_cog_x, plot_cog_y, marker="o", linestyle="None", color="r", ms=3, zorder=10000)
+        if not np.all(np.isfinite([hillas.length, hillas.width, hillas.psi,
+                                   hillas.cog_x, hillas.cog_y])) or min(hillas.length, hillas.width) <= 0:
+            return
+        _add_hillas_outline(ax, plot_cog_x, plot_cog_y, hillas.length, hillas.width,
+                            90.0 - hillas.psi, centroid_size=centroid_size)
         angular_half_len = float(np.tan(np.deg2rad(3.5)) * hillas.focal_length)
         try:
             xlim = ax.get_xlim()
@@ -2470,13 +2733,18 @@ class EventVisualizer:
             color="r",
             lw=1.4,
             ls="--",
-            zorder=10000,
+            zorder=9999,
+            label="Hillas major axis",
         )
 
     def _draw_ideal_position(self, ax, event):
         if not hasattr(event, "pointing") or event.pointing is None:
             return
-        shower = _shower(event)
+        shower = getattr(getattr(event, "simulation", None), "shower", None)
+        angles = [getattr(shower, key, None) for key in ("alt", "az")]
+        angles += [getattr(event.pointing, key, None) for key in ("array_altitude", "array_azimuth")]
+        if not all(value is not None and np.isfinite(value) for value in angles):
+            return
         first_tel = next(iter(self.tel_geoms))
         focal_length = self.tel_geoms[first_tel].focal_length
         _, _, x_camera, y_camera = incident_point_on_camera(
@@ -2497,6 +2765,7 @@ class EventVisualizer:
                 ms=6,
                 mew=1.5,
                 zorder=10000,
+                label="True direction",
             )
 
     def _draw_reco_position(self, ax, event, reconstructor: str = "HillasReconstructor"):
@@ -2529,6 +2798,7 @@ class EventVisualizer:
                 ms=8,
                 mew=1.8,
                 zorder=10001,
+                label="Reconstructed direction",
             )
 
     def _draw_sdp_line(
@@ -2543,6 +2813,7 @@ class EventVisualizer:
         color: str,
         line_style: str,
         line_width: float,
+        label: str,
     ) -> bool:
         """Project one shower-detector plane onto a telescope camera."""
 
@@ -2603,6 +2874,7 @@ class EventVisualizer:
             ls=line_style,
             alpha=0.95,
             zorder=10000,
+            label=label,
         )
         return True
 
@@ -2624,6 +2896,7 @@ class EventVisualizer:
                 color="magenta",
                 line_style="-",
                 line_width=1.8,
+                label="True SDP",
             )
         except (AttributeError, TypeError, ValueError):
             return False
@@ -2650,6 +2923,7 @@ class EventVisualizer:
             color="#2166ac",
             line_style="--",
             line_width=1.8,
+            label="Reconstructed SDP",
         )
 
     def _finish(self, fig, output_path: Optional[str], show: bool):

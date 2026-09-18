@@ -59,6 +59,7 @@ def plot_camera_image(
         The axes object with the camera image
     """
     from matplotlib.patches import RegularPolygon
+    from .event_visualizer import _CAMERA_BACKGROUND, _style_camera_axis, _style_camera_colorbar
 
     fig, ax = plt.subplots(figsize=(8, 8))
 
@@ -75,18 +76,18 @@ def plot_camera_image(
     if cut_radius is not None:
         distance_flag = pix_r < cut_radius
 
-    cmap = plt.cm.viridis
+    cmap = plt.cm.plasma.with_extremes(bad=_CAMERA_BACKGROUND)
     norm = mcolors.Normalize(vmin=vmin, vmax=vmax)
 
     for i in range(len(pix_x)):
         x_center = pix_y[i]
         y_center = pix_x[i]
 
-        if mask[i]:
+        if mask[i] and np.isfinite(pe[i]) and pe[i] != 0:
             color = cmap(norm(pe[i]))
             facecolor = color
         else:
-            facecolor = 'lightgray'
+            facecolor = _CAMERA_BACKGROUND
 
         if pixel_shape.lower() == "hex":
             # Use RegularPolygon to draw hexagon
@@ -121,6 +122,7 @@ def plot_camera_image(
     ax.set_aspect('equal')
     ax.set_xlabel('Y [deg]')
     ax.set_ylabel('X [deg]')
+    _style_camera_axis(ax)
     if title is not None:
         ax.set_title(title)
     else:
@@ -135,7 +137,7 @@ def plot_camera_image(
     cax = divider.append_axes("right", size="5%", pad=0.1)
     sm = plt.cm.ScalarMappable(cmap=cmap, norm=norm)
     sm.set_array([])
-    plt.colorbar(sm, cax=cax, label='Photoelectrons')
+    _style_camera_colorbar(plt.colorbar(sm, cax=cax))
 
     return ax
 
@@ -150,8 +152,10 @@ def plot_hillas_circle(ax: plt.Axes, hillas_x:float, hillas_y:float, hillas_leng
     hillas_psi_deg = np.degrees(hillas_psi)
     # Swap x and y: hillas_y becomes horizontal (matplotlib x), hillas_x becomes vertical (matplotlib y)
     # Also swap width and height, and adjust angle by 90 degrees
-    circle = Ellipse(xy=(hillas_y_deg, hillas_x_deg), width=hillas_length_deg, height=hillas_width_deg, angle=90 - hillas_psi_deg , fill=False, color='red', linewidth=2)
-    ax.add_patch(circle)
+    from .event_visualizer import _add_hillas_outline
+
+    _add_hillas_outline(ax, hillas_y_deg, hillas_x_deg,
+                        hillas_length_deg, hillas_width_deg, 90 - hillas_psi_deg)
     return ax
 
 
