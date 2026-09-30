@@ -118,6 +118,21 @@ bool HillasReconstructor::reconstruct(const std::unordered_map<int, HillasParame
     geometry.alt_uncertainty = sigma_x;
     geometry.az_uncertainty = sigma_y;
 
+    // hmax uses the current event's impact parameters. Populate them before
+    // estimating height; operator() clears this map at the start of each event.
+    for(const auto tel_id: telescopes)
+    {
+        auto tel_coord = subarray.tel_positions.at(tel_id);
+        auto impact_parameter = Utils::point_line_distance(tel_coord, {core_x, core_y, 0}, {cos(rec_az), sin(rec_az), 0});
+        if (!std::isfinite(impact_parameter))
+        {
+            geometry.is_valid = false;
+            impact_parameters.clear();
+            return false;
+        }
+        impact_parameters[tel_id] = impact_parameter;
+    }
+
     geometry.hmax = reconstruction_hmax(fov_x, fov_y,rec_alt);
     auto & atmosphere = TableAtmosphereModel::global_instance();
     geometry.xmax = atmosphere.convert_hmax_to_xmax(geometry.hmax/1e3);
@@ -140,26 +155,14 @@ bool HillasReconstructor::reconstruct(const std::unordered_map<int, HillasParame
         std::isfinite(geometry.tilted_core_y) &&
         std::isfinite(geometry.tilted_core_uncertainty_x) &&
         std::isfinite(geometry.tilted_core_uncertainty_y) &&
-        std::isfinite(geometry.hmax) &&
-        std::isfinite(geometry.xmax);
+        std::isfinite(geometry.hmax);
+    // Xmax may be unavailable without an atmosphere profile; this does not
+    // invalidate the independently reconstructed direction, core or energy.
     if (!finite_geometry)
     {
         geometry.is_valid = false;
         impact_parameters.clear();
         return false;
-    }
-
-    for(const auto tel_id: telescopes)
-    {
-        auto tel_coord = subarray.tel_positions.at(tel_id);
-        auto impact_parameter = Utils::point_line_distance(tel_coord, {core_x, core_y, 0}, {cos(rec_az), sin(rec_az), 0});
-        if (!std::isfinite(impact_parameter))
-        {
-            geometry.is_valid = false;
-            impact_parameters.clear();
-            return false;
-        }
-        impact_parameters[tel_id] = impact_parameter;
     }
 
     geometry.is_valid = true;
@@ -248,7 +251,7 @@ double HillasReconstructor::reconstruction_hmax(double fov_x, double fov_y,doubl
     {
         int tel_id = telescopes[i];
         double r = sqrt(pow(fov_x - hillas_dicts[tel_id].x, 2) + pow(fov_y - hillas_dicts[tel_id].y, 2));
-        auto impact_parameter = impact_parameters[tel_id];
+        auto impact_parameter = impact_parameters.at(tel_id);
         auto hmax_estimate = impact_parameter/r;
         hmax_v(i) = hmax_estimate;
         weights(i) = nominal_hillas_dicts[tel_id].intensity;

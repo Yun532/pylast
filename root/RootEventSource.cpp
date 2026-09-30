@@ -1,4 +1,5 @@
 #include "RootEventSource.hh"
+#include "RootAtmosphere.hh"
 #include "EventMonitor.hh"
 #include "ImageParameters.hh"
 #include "RootDataLevels.hh"
@@ -108,37 +109,9 @@ void RootEventSource::init_simulation_config()
 
 void RootEventSource::init_atmosphere_model()
 {
-    TDirectory* cfg_dir = file->GetDirectory("cfg/");
-    if(!cfg_dir)
-    {
-        spdlog::debug("no cfg directory found");
-        return;
-    }
-    auto atmosphere_model_tree = static_cast<TTree*>(cfg_dir->Get("atmosphere_model"));
-    if(!atmosphere_model_tree)
-    {
-        spdlog::debug("no atmosphere model tree found");
-        return;
-    }
-    atmosphere_model = TableAtmosphereModel();
-    RVecD* alt_km = nullptr;
-    RVecD* rho = nullptr;
-    RVecD* thick = nullptr;
-    RVecD* refidx_m1 = nullptr;
-    atmosphere_model_tree->SetBranchAddress("alt_km", &alt_km);
-    atmosphere_model_tree->SetBranchAddress("rho", &rho);
-    atmosphere_model_tree->SetBranchAddress("thick", &thick);
-    atmosphere_model_tree->SetBranchAddress("refidx_m1", &refidx_m1);
-    for(int i = 0; i < atmosphere_model_tree->GetEntries(); ++i)
-    {
-        atmosphere_model_tree->GetEntry(i);
-    }
-    spdlog::debug("atmosphere model tree entries: {}", atmosphere_model_tree->GetEntries());
-    atmosphere_model->n_alt = alt_km->size();
-    atmosphere_model->alt_km = Eigen::Map<Eigen::VectorXd>(alt_km->data(), alt_km->size());
-    atmosphere_model->rho = Eigen::Map<Eigen::VectorXd>(rho->data(), rho->size());
-    atmosphere_model->thick = Eigen::Map<Eigen::VectorXd>(thick->data(), thick->size());
-    atmosphere_model->refidx_m1 = Eigen::Map<Eigen::VectorXd>(refidx_m1->data(), refidx_m1->size());
+    atmosphere_model = read_root_atmosphere(*file);
+    if (atmosphere_model)
+        TableAtmosphereModel::global_instance() = *atmosphere_model;
 }
 void RootEventSource::load_all_simulated_showers()
 {
@@ -372,7 +345,9 @@ ArrayEvent RootEventSource::get_event(int index)
 }
 bool RootEventSource::is_finished() 
 {
-    return event_helper.current_entry >= max_events;
+    // The helper advances while prefetching; the iterator still has to yield
+    // that event. Use the iterator position so the final event is not dropped.
+    return current_event_index >= max_events;
 }
 
 void RootEventSource::initialize_statistics()

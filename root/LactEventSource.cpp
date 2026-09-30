@@ -1,4 +1,5 @@
 #include "LactEventSource.hh"
+#include "RootAtmosphere.hh"
 
 #include "DL0Event.hh"
 #include "R0Event.hh"
@@ -123,7 +124,9 @@ void LactEventSource::init_metaparam()
 
 void LactEventSource::init_atmosphere_model()
 {
-    spdlog::debug("LACT ROOT adapter does not currently populate atmosphere_model");
+    atmosphere_model = read_root_atmosphere(*file);
+    if (atmosphere_model)
+        TableAtmosphereModel::global_instance() = *atmosphere_model;
 }
 
 void LactEventSource::init_simulation_config()

@@ -1,5 +1,12 @@
 #include "ReconstructorFactory.hh"
 
+ReconstructorFactory& ReconstructorFactory::instance()
+{
+    // Keep one registry across the core shared library and Python extensions,
+    // whose hidden visibility otherwise creates a separate inline singleton.
+    static ReconstructorFactory factory;
+    return factory;
+}
 
 void ReconstructorFactory::register_reconstructor(const std::string& type, const std::function<std::unique_ptr<Reconstructor>(const SubarrayDescription& subarray, const json& config)>& creator)
 {

@@ -74,7 +74,7 @@ void ShowerProcessor::setUp()
             }
             else
             {
-                spdlog::error("Unknown geometry reconstruction type: {}", geometry_type);
+                throw std::runtime_error("Unknown geometry reconstruction type: " + geometry_type);
             }
         }
     }

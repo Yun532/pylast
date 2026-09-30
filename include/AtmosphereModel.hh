@@ -34,7 +34,7 @@ public:
         thick = other.thick;
         refidx_m1 = other.refidx_m1;
         input_filename = other.input_filename;
-        cs_thick = set_1d_cubic_params(alt_km.data(), thick.data(), n_alt, 0);
+        cs_thick = n_alt >= 4 ? set_1d_cubic_params(alt_km.data(), thick.data(), n_alt, 0) : nullptr;
     }
     TableAtmosphereModel& operator=(const TableAtmosphereModel& other)
     {
@@ -46,7 +46,8 @@ public:
             thick = other.thick;
             refidx_m1 = other.refidx_m1;
             input_filename = other.input_filename;
-            cs_thick = set_1d_cubic_params(alt_km.data(), thick.data(), n_alt, 0);
+            free(cs_thick);
+            cs_thick = n_alt >= 4 ? set_1d_cubic_params(alt_km.data(), thick.data(), n_alt, 0) : nullptr;
         }
         return *this;
     }
@@ -70,7 +71,7 @@ public:
         return table;
     }
 
-    int n_alt;
+    int n_alt = 0;
     /** @brief Altitude above sea level in kilometers */
     Eigen::VectorXd alt_km;
     /** @brief Density in g/cm^3 at each altitude level */
@@ -83,5 +84,6 @@ public:
     Eigen::VectorXd convert_hmax_to_xmax(const Eigen::VectorXd& hmax);
     double convert_hmax_to_xmax(double hmax);
 private:
+    void validate_profile() const;
     CsplinePar* cs_thick = nullptr;  /**< Cubic spline parameters for thickness vs. altitude */
 };

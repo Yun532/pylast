@@ -87,7 +87,7 @@ def enhanced_hillas_reco(args):
     for i, (input_file, output_file) in enumerate(zip(input_files, output_files)):
         print(f"  {i+1}: {input_file} -> {output_file}")
     
-    from pylast.io import SimtelEventSource,DataWriter
+    from pylast.io import SimtelEventSource, LactEventSource, DataWriter
     from pylast.reco import ShowerProcessor
     from pylast.calib import Calibrator
     from pylast.image import ImageProcessor
@@ -99,19 +99,26 @@ def enhanced_hillas_reco(args):
     # Process each input-output file pair
     for input_index, (input_fname, output_fname) in enumerate(zip(input_files, output_files)):
         print(f"Processing: {input_fname} -> {output_fname}")
-        if args.subarray:
-            source = SimtelEventSource(input_fname, -1, [int(tel_id) for tel_id in args.subarray.split(',')])
-        else:
-            source = SimtelEventSource(input_fname)
-        calibrator = Calibrator(source.subarray, config_str=json.dumps(config.get("calibrator", {})))
+        source_type = LactEventSource if args.input_format == "lact" else SimtelEventSource
+        tels = [int(tel_id) for tel_id in args.subarray.split(',')] if args.subarray else []
+        source = source_type(input_fname, -1, tels)
+        if args.atmosphere_profile:
+            source.load_atmosphere_model(args.atmosphere_profile)
+        calibrator = (None if args.input_format == "lact" else
+                      Calibrator(source.subarray, config_str=json.dumps(config.get("calibrator", {}))))
         image_processor = ImageProcessor(source.subarray, config_str=json.dumps(config.get("image_processor", {})))
         shower_processor = ShowerProcessor(source.subarray, config_str=json.dumps(config.get("shower_processor", {})))
-        data_writer = DataWriter(source, output_fname, config_str=json.dumps(config.get("data_writer", {})))
+        writer_config = dict(config.get("data_writer", {}))
+        if args.atmosphere_profile or (args.input_format == "lact" and source.atmosphere_model is not None):
+            writer_config["write_atmosphere_model"] = True
+        data_writer = DataWriter(getattr(source, "_source", source), output_fname,
+                                 config_str=json.dumps(writer_config))
         visualizer, plot_dir = _make_event_plotter(source, args)
         
         plot_count = 0
         for event_index, event in enumerate(source):
-            calibrator(event)
+            if calibrator is not None:
+                calibrator(event)
             image_processor(event)
             shower_processor(event)
             if _maybe_plot_event(visualizer, plot_dir, event, event_index, input_index, plot_count, args):
@@ -128,6 +135,10 @@ def main():
     parser = argparse.ArgumentParser(description='Hillas reconstruction tool')
     parser.add_argument('--enhanced', action='store_true', 
                        help='Use enhanced Hillas reconstruction implementation')
+    parser.add_argument('--input-format', choices=['simtel', 'lact'],
+                        help='Use lact for LACTsim ROOT inputs (already detector-level images)')
+    parser.add_argument('--atmosphere-profile',
+                        help='Matched four-column atmosphere profile: km, g/cm3, g/cm2, n-1')
     
     # Add common arguments that the hillas_reco executable typically uses
     parser.add_argument('-i', '--input', required=True, action='append',
@@ -162,7 +173,7 @@ def main():
     # Parse all arguments
     args = parser.parse_args()
     
-    if args.enhanced or _plot_requested(args):
+    if args.enhanced or _plot_requested(args) or args.input_format or args.atmosphere_profile:
         return enhanced_hillas_reco(args)
     else:
         # Use the default executable - pass all args except --enhanced

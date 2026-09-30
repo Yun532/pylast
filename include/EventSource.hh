@@ -106,6 +106,8 @@ public:
 
     std::optional<Statistics> statistics;
     std::optional<TableAtmosphereModel> atmosphere_model;
+    bool atmosphere_from_input = false;
+    void load_atmosphere_model(const std::string& filename);
     std::optional<Metaparam> metaparam;
 
     /**
@@ -194,7 +196,10 @@ protected:
         open_file();
         init_metaparam();
         init_simulation_config();
+        // Do not reuse a previous input file's atmosphere when this source has none.
+        TableAtmosphereModel::global_instance() = TableAtmosphereModel();
         init_atmosphere_model();
+        atmosphere_from_input = atmosphere_model.has_value();
         init_subarray();
         if(load_simulated_showers){
             load_all_simulated_showers();

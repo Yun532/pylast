@@ -4,6 +4,8 @@
 #include <fstream>
 #include "spdlog/spdlog.h"
 #include <iostream>
+#include <cmath>
+#include <limits>
 
 TableAtmosphereModel::TableAtmosphereModel(const std::string& filename) : input_filename(filename)
 {
@@ -31,6 +33,8 @@ TableAtmosphereModel::TableAtmosphereModel(const std::string& filename) : input_
             rho_data.push_back(rho);
             thick_data.push_back(thick);
             refidx_data.push_back(refidx);
+        } else if (line.find_first_not_of(" \t\r") != std::string::npos) {
+            throw std::runtime_error("Invalid four-column atmosphere profile row in " + filename);
         }
     }
 
@@ -45,6 +49,7 @@ TableAtmosphereModel::TableAtmosphereModel(const std::string& filename) : input_
     this->rho = Eigen::Map<Eigen::VectorXd>(rho_data.data(), n_alt);
     this->thick = Eigen::Map<Eigen::VectorXd>(thick_data.data(), n_alt);
     this->refidx_m1 = Eigen::Map<Eigen::VectorXd>(refidx_data.data(), n_alt);
+    validate_profile();
     cs_thick = set_1d_cubic_params(alt_km.data(), thick.data(), n_alt, 0);
 }
 TableAtmosphereModel::TableAtmosphereModel(int n_alt, double* alt_km, double* rho, double* thick, double* refidx_m1)
@@ -57,19 +62,33 @@ TableAtmosphereModel::TableAtmosphereModel(int n_alt, double* alt_km, double* rh
     this->rho = Eigen::VectorXd(Eigen::Map<Eigen::VectorXd>(rho, n_alt));
     this->thick = Eigen::VectorXd(Eigen::Map<Eigen::VectorXd>(thick, n_alt));
     this->refidx_m1 = Eigen::VectorXd(Eigen::Map<Eigen::VectorXd>(refidx_m1, n_alt));
+    validate_profile();
     cs_thick = set_1d_cubic_params(this->alt_km.data(), this->thick.data(), n_alt, 0);
 }
 
+void TableAtmosphereModel::validate_profile() const
+{
+    if (n_alt < 4 || !alt_km.allFinite() || !rho.allFinite() ||
+        !thick.allFinite() || !refidx_m1.allFinite() ||
+        (rho.array() < 0).any() || (thick.array() < 0).any() ||
+        (refidx_m1.array() < 0).any())
+        throw std::runtime_error("Atmosphere profile needs at least four finite, physical rows");
+    for (int i = 1; i < n_alt; ++i)
+        if (alt_km[i] <= alt_km[i-1] || thick[i] > thick[i-1])
+            throw std::runtime_error("Atmosphere altitude must increase and column depth must not increase");
+}
 
 Eigen::VectorXd TableAtmosphereModel::convert_hmax_to_xmax(const Eigen::VectorXd& hmax)
 {
-    printf("convert_hmax_to_xmax\n");
-    return Eigen::VectorXd::Zero(hmax.size());
+    return hmax.unaryExpr([this](double height) { return convert_hmax_to_xmax(height); });
 }
 
 double TableAtmosphereModel::convert_hmax_to_xmax(double hmax)
 {
-    if(hmax >= 100) return -1;
+    // Missing profiles and heights outside their coverage are not zero depth.
+    if (n_alt < 4 || !cs_thick || !std::isfinite(hmax) ||
+        hmax < alt_km[0] || hmax > alt_km[n_alt-1])
+        return std::numeric_limits<double>::quiet_NaN();
     double xmax = rpol_cspline(alt_km.data(), thick.data(), cs_thick, n_alt, hmax, 0, 0);
     return xmax;
 }

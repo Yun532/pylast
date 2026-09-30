@@ -1,6 +1,7 @@
 #include "EventSource.hh"
 #include "SimulationConfiguration.hh"
 #include "nanobind/nanobind.h"
+#include "nanobind/eigen/dense.h"
 #include "nanobind/stl/string.h"
 #include "nanobind/stl/vector.h"
 #include "nanobind/stl/unordered_map.h"
@@ -22,6 +23,7 @@ NB_MODULE(_pyeventsource, m){
         .def_ro("allowed_tels", &EventSource::allowed_tels)
         .def_ro("simulation_config", &EventSource::simulation_config)
         .def_ro("atmosphere_model", &EventSource::atmosphere_model)
+        .def("load_atmosphere_model", &EventSource::load_atmosphere_model, nb::arg("filename"))
         .def_ro("metaparam", &EventSource::metaparam)
         .def_prop_ro("subarray", [](EventSource& self) -> SubarrayDescription& {
             if (!self.subarray.has_value()) {

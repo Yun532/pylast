@@ -6,10 +6,7 @@
 class ReconstructorFactory
 {
 public:
-    static ReconstructorFactory& instance() {
-        static ReconstructorFactory factory;
-        return factory;
-    }
+    static ReconstructorFactory& instance();
     std::unique_ptr<Reconstructor> create(const std::string& type, const SubarrayDescription& subarray, const json& config);
     void register_reconstructor(const std::string& type, const std::function<std::unique_ptr<Reconstructor>(const SubarrayDescription& subarray, const json& config)>& creator);
     bool is_registered(const std::string& type) const;
