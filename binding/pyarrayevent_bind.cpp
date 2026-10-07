@@ -64,6 +64,7 @@ void bind_dl2_event(nb::module_ &m) {
     nb::class_<ReconstructedEnergy>(m, "ReconstructedEnergy")
         .def(nb::init<>())
         .def(nb::init<bool, double>())
+        .def_rw("telescopes", &ReconstructedEnergy::telescopes)
         .def_rw("estimate_energy", &ReconstructedEnergy::estimate_energy)
         .def_rw("energy_valid", &ReconstructedEnergy::energy_valid)
         .def_ro("estimate_energy_std", &ReconstructedEnergy::estimate_energy_std)
@@ -78,6 +79,7 @@ void bind_dl2_event(nb::module_ &m) {
             return fmt::format("ReconstructedParticle:\n  hadroness: {}\n  is_valid: {}", self.hadroness, self.is_valid);
         });
     nb::class_<ReconstructedGeometry>(m, "ReconstructedGeometry")
+        .def(nb::init<>())
         .def_rw("is_valid", &ReconstructedGeometry::is_valid)
         .def_rw("alt", &ReconstructedGeometry::alt)
         .def_rw("az", &ReconstructedGeometry::az)
@@ -429,9 +431,13 @@ void bind_tel_monitor(nb::module_ &m) {
 }
         
 void bind_pointing_event(nb::module_ &m) {
+    nb::class_<PointingTelescope>(m, "PointingTelescope")
+        .def_ro("azimuth", &PointingTelescope::azimuth)
+        .def_ro("altitude", &PointingTelescope::altitude);
     nb::class_<Pointing>(m, "Pointing")
         .def_ro("array_azimuth", &Pointing::array_azimuth)
         .def_ro("array_altitude", &Pointing::array_altitude)
+        .def_prop_ro("tels", &Pointing::get_tels, nb::rv_policy::reference_internal)
         .def("__repr__", [](Pointing& self) {
             return fmt::format("Pointing:\n  array_azimuth: {}\n  array_altitude: {}", self.array_azimuth, self.array_altitude);
         });
@@ -445,6 +451,10 @@ void bind_array_event(nb::module_ &m) {
         .def_ro("dl0", &ArrayEvent::dl0)
         .def_ro("dl1", &ArrayEvent::dl1)
         .def_ro("dl2", &ArrayEvent::dl2, nb::rv_policy::reference_internal)
+        .def("ensure_dl2", [](ArrayEvent& self) -> DL2Event& {
+            if (!self.dl2.has_value()) self.dl2.emplace();
+            return self.dl2.value();
+        }, nb::rv_policy::reference_internal)
         .def_ro("pointing", &ArrayEvent::pointing)
         .def_ro("event_id", &ArrayEvent::event_id)
         .def_ro("run_id", &ArrayEvent::run_id)

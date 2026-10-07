@@ -1,56 +1,68 @@
-from ..helper import ShowerProcessor as CShowerProcessor  # Consistent naming
+"""Original C++ stereo processing, with explicit optional mono/hybrid stages."""
+from ..helper import ShowerProcessor as CShowerProcessor
 import json
 
+
 class ShowerProcessor:
-    C_RECONSTRUCTORS = ["HillasReconstructor"]  # Use constants for clarity
-    PY_RECONSTRUCTORS = []
+    C_RECONSTRUCTORS = ["HillasReconstructor", "EnergyRegressor", "ParticleClassifier"]
+    PY_RECONSTRUCTORS = ["MonoReconstructor", "HybridReconstructor"]
 
     def __init__(self, subarray, config_str=None):
         self.subarray = subarray
         self.c_reconstructor_config = {}
-        self.py_reconstructor_configs = {}  # Store Python configs separately
-        self.c_shower_processor = None  # Initialize to None
+        self.py_reconstructor_configs = {}
+        self.c_shower_processor = None
+        self.mono_reconstructor = None
+        self.hybrid_reconstructor = None
+        self.last_mono_result = None
+        self.last_hybrid_result = None
 
-        # Only initialize c_shower_processor if we have C reconstructor configs
-    
-        self.c_shower_processor = CShowerProcessor(subarray, config_str)
-    def _parse_config(self, config_str):
-        try:
-            config = json.loads(config_str)
-            config = config.get("ShowerProcessor", config)
-        except json.JSONDecodeError:
-            raise ValueError("Invalid JSON configuration string.")
-        for reconstruction_type in config["GeometryReconstructionTypes"]:
-            if reconstruction_type in self.C_RECONSTRUCTORS:
-                self.c_reconstructor_config[reconstruction_type] = config[reconstruction_type]
-            elif reconstruction_type in self.PY_RECONSTRUCTORS:
-                self.py_reconstructor_configs[reconstruction_type] = config[reconstruction_type]
+        config = json.loads(config_str) if isinstance(config_str, str) else dict(config_str or {})
+        section = config.get("ShowerProcessor", config)
+        names = section.get("GeometryReconstructionTypes", [])
+        python_names = [name for name in names if name in self.PY_RECONSTRUCTORS]
+        if not python_names:
+            # Preserve default stereo construction, including the original JSON string/None.
+            native_config = json.dumps(config_str) if isinstance(config_str, dict) else config_str
+            self.c_shower_processor = CShowerProcessor(subarray, native_config)
+            return
+        if len(set(python_names)) != len(python_names):
+            raise ValueError("Duplicate Python reconstructor stage")
+        if "MonoReconstructor" not in section:
+            raise ValueError("Mono/hybrid stages require a shared MonoReconstructor configuration")
+
+        c_names = [name for name in names if name not in self.PY_RECONSTRUCTORS]
+        if "HybridReconstructor" in python_names and "HillasReconstructor" not in c_names:
+            raise ValueError("HybridReconstructor requires the original C++ HillasReconstructor")
+        self.py_reconstructor_configs = {name: section.get(name, {}) for name in python_names}
+        self.c_reconstructor_config = {
+            key: value for key, value in section.items() if key not in self.PY_RECONSTRUCTORS
+        }
+        self.c_reconstructor_config["GeometryReconstructionTypes"] = c_names
+        if c_names:
+            native_config = dict(config)
+            if "ShowerProcessor" in config:
+                native_config["ShowerProcessor"] = self.c_reconstructor_config
             else:
-                raise ValueError(f"Unknown reconstruction type: {reconstruction_type}")
+                native_config = self.c_reconstructor_config
+            self.c_shower_processor = CShowerProcessor(subarray, json.dumps(native_config))
+
+        # Optional model dependencies are imported only for explicitly requested stages.
+        from .MonoReconstructor import MonoReconstructor
+        self.mono_reconstructor = MonoReconstructor(subarray, section["MonoReconstructor"])
+        if "HybridReconstructor" in python_names:
+            from .HybridReconstructor import HybridReconstructor
+            self.hybrid_reconstructor = HybridReconstructor(
+                subarray, self.c_shower_processor, self.mono_reconstructor,
+                **section.get("HybridReconstructor", {}),
+            )
+
     def __call__(self, event):
-        """Processes an event using the configured reconstructors."""
-        if self.c_shower_processor:
+        """One C++ stereo pass, then optional fixed-mono and exact-one routing."""
+        if self.c_shower_processor is not None:
             self.c_shower_processor(event)
-        # Add logic here to use self.py_reconstructor_configs to process the event
-        # with Python-based reconstructors.  This part is crucial and was missing
-        # from the original code.  Example (you'll need to adapt this):
-        # for name, config in self.py_reconstructor_configs.items():
-        #     reconstructor = self._get_py_reconstructor(name, config)
-        #     reconstructor.process(event)
-
-    def _get_py_reconstructor(self, name, config):
-        """
-        Factory method to create and return a Python reconstructor instance.
-        This is a placeholder; you'll need to implement the actual instantiation
-        logic based on your Python reconstructor classes.
-        """
-        if name == "DispReconstructor":
-            # Example: return DispReconstructor(self.subarray, **config)
-            #  You'll need to define a DispReconstructor class.
-            pass  # Replace with actual instantiation
-        else:
-            raise ValueError(f"Unsupported Python reconstructor: {name}")
-
-    # Remove __call__ and use process_event instead
-    # def __call__(self, event):
-    #     self.process_event(event)
+        if "MonoReconstructor" in self.py_reconstructor_configs:
+            self.last_mono_result = self.mono_reconstructor(event)
+        if self.hybrid_reconstructor is not None:
+            # Hybrid's exact-one call uses store=False; any fixed-mono DL2 stays intact.
+            self.last_hybrid_result = self.hybrid_reconstructor(event, run_stereo=False)

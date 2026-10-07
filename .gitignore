@@ -1045,3 +1045,20 @@ Test/
 Release/
 .vscode/
 build*/
+
+# Trained reconstruction assets are delivered privately, outside this repository.
+/model/
+/models/
+/model_bundle/
+/models_local/
+/src/pylast/model/
+*.joblib
+*.pkl
+*.pickle
+*.onnx
+*.pt
+*.pth
+*.h5
+*.hdf5
+*model_bundle*.zip
+*model_bundle*.tar*

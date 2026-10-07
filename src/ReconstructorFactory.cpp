@@ -1,5 +1,12 @@
 #include "ReconstructorFactory.hh"
 
+ReconstructorFactory& ReconstructorFactory::instance()
+{
+    // One registry shared by the core library and hidden-visibility Python modules.
+    static ReconstructorFactory factory;
+    return factory;
+}
+
 
 void ReconstructorFactory::register_reconstructor(const std::string& type, const std::function<std::unique_ptr<Reconstructor>(const SubarrayDescription& subarray, const json& config)>& creator)
 {
