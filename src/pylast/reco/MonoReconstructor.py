@@ -182,6 +182,8 @@ class MonoReconstructor:
         self.last_result = None
 
     def valid_images(self, rows):
+        if rows.empty:
+            return np.zeros(0, dtype=bool)
         essential = ["hillas_intensity", "hillas_length", "hillas_width",
                      "nominal_x", "nominal_y", "nominal_psi"]
         valid = np.isfinite(rows[essential]).all(axis=1).to_numpy(copy=True)

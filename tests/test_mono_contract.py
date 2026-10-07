@@ -413,8 +413,28 @@ def main(native=False):
     boundary = mono(event)
     assert boundary.energy_reco_log10.iloc[0] == below_max
     assert not boundary.pid_valid.iloc[0] and not boundary.pass_pid.iloc[0]
+    # Empty-camera input retains zero rows, including the exporter's object dtype.
+    event.simulation.tels = {}
+    event.simulation.triggered_tels = []
+    empty_rows = mono.event_table(event)
+    assert empty_rows.empty
+    for rows in (empty_rows, pd.DataFrame()):
+        valid = mono.valid_images(rows)
+        assert valid.shape == (0,) and valid.dtype == np.bool_
+        result = mono.predict_table(rows)
+        assert result.empty and len(result) == 0
+        assert {"accepted", "reconstruction_valid", "pid_valid", "pass_pid"} <= set(result)
+        assert result.accepted.dtype == np.bool_
+    for cameras_present in (False, True):
+        event.simulation.tels = cameras if cameras_present else {}
+        route = hybrid(event, run_stereo=False)
+        assert route["n_guard_tel"] == 0 and route["branch"] == "rejected"
+        assert route["mono"] is None and not route["accepted"]
+        assert not event.dl2.geometry[hybrid.geometry_name].is_valid
+        assert not event.dl2.energy[hybrid.energy_name].energy_valid
     print("PASS: 17 pure features, truth independence, coordinates/skew axis, GeV-to-TeV, exact-one union, stereo preservation")
     print("PASS: portable relative/absolute/JSON assets, SHA refusal, shared optional stages, lazy stereo imports")
+    print("PASS: zero-row prediction and empty-camera/zero-guard hybrid rejection without fallback")
     print("coordinate_backend=" + ("native_pyLAST" if native else "C++-equation doubles; native verification still required"))
 
 

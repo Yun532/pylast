@@ -349,7 +349,13 @@ void LactEventSource::load_observations()
     set_branch_if_exists(tree, "n_pixels_camera", &row.n_pixels_camera);
     set_branch_if_exists(tree, "pixel_id", &pixel_id);
     set_branch_if_exists(tree, "image_pe", &image_pe);
-    set_branch_if_exists(tree, "image_cherenkov_pe", &image_cherenkov_pe);
+    if (tree->GetBranch("image_cherenkov_pe") != nullptr) {
+        tree->SetBranchAddress("image_cherenkov_pe", &image_cherenkov_pe);
+    } else {
+        // Legacy LACT_sim name used by the frozen mono input campaign.
+        // Never substitute the detector-level image_pe (which may contain NSB).
+        set_branch_if_exists(tree, "image_primary_cherenkov_pe", &image_cherenkov_pe);
+    }
     set_branch_if_exists(tree, "image_time_peak_ns", &peak_time);
     const auto n_entries = tree->GetEntries();
     observations.reserve(static_cast<std::size_t>(n_entries));

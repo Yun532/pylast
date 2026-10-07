@@ -77,6 +77,9 @@ route = hybrid(event, run_stereo=False)  # 不重复执行立体或图像处理
 默认 bundle 使用已有的 simulated-image 参数（`use_fake_hillas=True`），
 这不是一套已认证的实测波形模型。要用实测 DL1，需另外验证对应输入/模型域，
 不能只改这个开关就声称性能已验证。
+LACT ROOT 读入保持新版 `image_cherenkov_pe` 优先，并兼容本批模拟的旧字段名
+`image_primary_cherenkov_pe`；不会把 detector-level `image_pe` 当作该真值图像。
+真正没有图像的事件正常拒绝，不伪填事件或重建结果。
 
 新增 ROOT / DL2 结果名为：
 
