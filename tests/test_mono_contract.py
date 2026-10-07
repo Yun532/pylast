@@ -213,6 +213,38 @@ def processor_contract(helper):
         default = wrapper.ShowerProcessor(None, raw)
         default("event")
         assert calls == [("C_init", raw), ("C_event", "event")]
+        for native_json in ("null", "[1]", "true", "42"):
+            calls.clear()
+            processor = wrapper.ShowerProcessor(None, native_json)
+            processor("event")
+            assert calls == [("C_init", native_json), ("C_event", "event")]
+            assert processor.mono_reconstructor is None
+        for native_section in (None, [], False, 1):
+            for config in (json.dumps({"ShowerProcessor": native_section}),
+                           {"ShowerProcessor": native_section}):
+                calls.clear()
+                processor = wrapper.ShowerProcessor(None, config)
+                processor("event")
+                expected = json.dumps(config) if isinstance(config, dict) else config
+                assert calls == [("C_init", expected), ("C_event", "event")]
+                assert processor.mono_reconstructor is None
+        # None remains the original second positional argument; native support
+        # is intentionally not fabricated by these dispatch-only doubles.
+        calls.clear()
+        wrapper.ShowerProcessor(None)
+        assert calls == [("C_init", None)]
+        for native_names in (None, False, 7, "MonoReconstructor"):
+            for nested in (False, True):
+                content = {"GeometryReconstructionTypes": native_names}
+                if nested:
+                    content = {"ShowerProcessor": content}
+                for config in (json.dumps(content), content):
+                    calls.clear()
+                    processor = wrapper.ShowerProcessor(None, config)
+                    processor("event")
+                    expected = json.dumps(config) if isinstance(config, dict) else config
+                    assert calls == [("C_init", expected), ("C_event", "event")]
+                    assert processor.mono_reconstructor is None
         shared = {"bundle_path": "z20/reconstruction.joblib", "model_dir": "portable"}
         for stages in (["MonoReconstructor"],
                        ["HillasReconstructor", "HybridReconstructor"],
@@ -284,6 +316,10 @@ spec = importlib.util.spec_from_file_location("pylast.reco", root / "__init__.py
                                             submodule_search_locations=[str(root)])
 module = importlib.util.module_from_spec(spec); sys.modules[spec.name] = module
 spec.loader.exec_module(module)
+star_namespace = {}
+exec("from pylast.reco import *", star_namespace)
+assert set(star_namespace) == {"__builtins__", "ShowerProcessor"}
+assert star_namespace["ShowerProcessor"] is module.ShowerProcessor
 assert "pylast.reco.MonoReconstructor" not in sys.modules
 assert "pylast.reco.HybridReconstructor" not in sys.modules
 processor = module.ShowerProcessor(None)

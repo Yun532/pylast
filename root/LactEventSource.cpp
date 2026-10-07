@@ -83,7 +83,16 @@ LactEventSource::LactEventSource(const std::string& filename,
                                  int64_t max_events,
                                  std::vector<int> subarray,
                                  bool load_simulated_showers)
-    : EventSource(filename, max_events, subarray, load_simulated_showers)
+    : LactEventSource(filename, max_events, subarray, load_simulated_showers, false)
+{}
+
+LactEventSource::LactEventSource(const std::string& filename,
+                                 int64_t max_events,
+                                 std::vector<int> subarray,
+                                 bool load_simulated_showers,
+                                 bool allow_legacy_cherenkov_alias)
+    : EventSource(filename, max_events, subarray, load_simulated_showers),
+      allow_legacy_cherenkov_alias(allow_legacy_cherenkov_alias)
 {
     is_stream = false;
     initialize();
@@ -351,7 +360,7 @@ void LactEventSource::load_observations()
     set_branch_if_exists(tree, "image_pe", &image_pe);
     if (tree->GetBranch("image_cherenkov_pe") != nullptr) {
         tree->SetBranchAddress("image_cherenkov_pe", &image_cherenkov_pe);
-    } else {
+    } else if (allow_legacy_cherenkov_alias) {
         // Legacy LACT_sim name used by the frozen mono input campaign.
         // Never substitute the detector-level image_pe (which may contain NSB).
         set_branch_if_exists(tree, "image_primary_cherenkov_pe", &image_cherenkov_pe);

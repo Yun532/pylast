@@ -18,9 +18,17 @@ class ShowerProcessor:
         self.last_hybrid_result = None
 
         config = json.loads(config_str) if isinstance(config_str, str) else dict(config_str or {})
+        if not isinstance(config, dict):
+            # Keep native handling of legal default/null and other non-object JSON.
+            self.c_shower_processor = CShowerProcessor(subarray, config_str)
+            return
         section = config.get("ShowerProcessor", config)
+        if not isinstance(section, dict):
+            native_config = json.dumps(config_str) if isinstance(config_str, dict) else config_str
+            self.c_shower_processor = CShowerProcessor(subarray, native_config)
+            return
         names = section.get("GeometryReconstructionTypes", [])
-        python_names = [name for name in names if name in self.PY_RECONSTRUCTORS]
+        python_names = [name for name in names if name in self.PY_RECONSTRUCTORS] if isinstance(names, list) else []
         if not python_names:
             # Preserve default stereo construction, including the original JSON string/None.
             native_config = json.dumps(config_str) if isinstance(config_str, dict) else config_str

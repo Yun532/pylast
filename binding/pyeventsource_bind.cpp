@@ -110,6 +110,12 @@ NB_MODULE(_pyeventsource, m){
              nb::arg("max_events") = -1,
              nb::arg("subarray") = std::vector<int>{},
              nb::arg("load_simulated_showers") = false)
+        .def(nb::init<const std::string&, int64_t, std::vector<int>, bool, bool>(),
+             nb::arg("filename"),
+             nb::arg("max_events") = -1,
+             nb::arg("subarray") = std::vector<int>{},
+             nb::arg("load_simulated_showers") = false,
+             nb::arg("allow_legacy_cherenkov_alias") = false)
         .def_prop_ro("shower_array", &LactEventSource::get_shower_array)
         .def("__getitem__", &LactEventSource::operator[])
         .def("__len__", [](LactEventSource& self) {

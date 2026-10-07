@@ -25,6 +25,14 @@ python -m pip install ".[mono]" --config-settings=cmake.args="-DWITH_EXT_REC=ON"
 Mono 使用 Python 3.11 或更新版本；`mono` extra 固定了现有模型的
 NumPy / pandas / scikit-learn / joblib 版本。
 普通立体用户仍可按原方式安装，无需启用 mono extra。
+为避免 mono extra 的版本要求升级你的旧环境，先在单独环境中安装/测试；
+不要直接覆盖生产环境。不开启新类型时不会导入或加载 mono 模型。
+
+旧 Python 模块若依赖安装目录 `pylast/model/*.pkl`，这些模型也单独私有交付。
+用兼容包内的 `restore_legacy_models.py --pylast-dir /path/to/site-packages/pylast`
+恢复原路径即可；脚本拒绝覆盖任何不同 SHA 的已有模型。你已有的外部立体
+模型路径和配置不需要改。此步骤只恢复资产，不认证原仓库中已缺失绑定的
+历史 Python ML 类。
 
 ## 模型单独复制
 
@@ -77,8 +85,16 @@ route = hybrid(event, run_stereo=False)  # 不重复执行立体或图像处理
 默认 bundle 使用已有的 simulated-image 参数（`use_fake_hillas=True`），
 这不是一套已认证的实测波形模型。要用实测 DL1，需另外验证对应输入/模型域，
 不能只改这个开关就声称性能已验证。
-LACT ROOT 读入保持新版 `image_cherenkov_pe` 优先，并兼容本批模拟的旧字段名
-`image_primary_cherenkov_pe`；不会把 detector-level `image_pe` 当作该真值图像。
+LACT ROOT 默认读入行为不变。只有本批旧格式输入需要显式打开字段兼容：
+
+```python
+from pylast.io import LactEventSource
+source = LactEventSource(filename, allow_legacy_cherenkov_alias=True)
+```
+
+即使打开此开关，新版 `image_cherenkov_pe` 仍优先；缺失时才读取旧字段名
+`image_primary_cherenkov_pe`。不开开关不读取旧别名，也不会把 detector-level
+`image_pe` 当作该真值图像。
 真正没有图像的事件正常拒绝，不伪填事件或重建结果。
 
 新增 ROOT / DL2 结果名为：
