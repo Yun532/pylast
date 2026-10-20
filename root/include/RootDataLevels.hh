@@ -43,7 +43,11 @@ class RootEventIndex
        virtual ~RootEventIndex() = default;
        
        // Data members
-       int event_id;
+       int event_id = 0;
+       int run_id = 0;
+       double time_mjd = std::numeric_limits<double>::quiet_NaN();
+       std::uint32_t rabbit_time = 0, rabbit_tick = 0;
+       Char_t is_led = -1; // -1 unknown, 0 not LED, 1 LED.
        RVecI telescopes;
        
         TTree* initialize_write(const std::string& name, const std::string& title);

@@ -6,6 +6,22 @@ import argparse
 from pathlib import Path
 
 
+def _real_shower_config(config):
+    """Use measured DL1 parameters with the existing reconstructors."""
+    import copy
+
+    result = copy.deepcopy(config)
+    shower = result.get("ShowerProcessor", result)
+    names = shower.get("GeometryReconstructionTypes", ["HillasReconstructor"])
+    supported = {"HillasReconstructor", "EnergyRegressor", "ParticleClassifier"}
+    unsupported = set(names) - supported
+    if unsupported:
+        raise ValueError("Real data does not support reconstructors: " + ", ".join(sorted(unsupported)))
+    for name in names:
+        shower.setdefault(name, {})["use_fake_hillas"] = False
+    return result
+
+
 def _plot_requested(args):
     return bool(getattr(args, "plot_dir", None))
 
@@ -94,21 +110,51 @@ def enhanced_hillas_reco(args):
     import json
     from pylast.helper import Statistics
     
-    config = json.load(open(args.config))
+    with open(args.config, encoding="utf-8") as config_file:
+        config = json.load(config_file)
+    is_real = args.input_format == "real"
+    shower_config = config.get("shower_processor", {})
+    if is_real:
+        if not args.mapping_file:
+            raise ValueError("Real data requires --mapping-file")
+        if _plot_requested(args) and args.plot_level == "simulation":
+            raise ValueError("Real data plots require --plot-level dl0 or dl1")
+        from pylast.io import LactRealEventSource
+        from pylast.calib import LactRealCalibrator
+
+        shower_config = _real_shower_config(shower_config)
     
     # Process each input-output file pair
     for input_index, (input_fname, output_fname) in enumerate(zip(input_files, output_files)):
         print(f"Processing: {input_fname} -> {output_fname}")
-        source_type = LactEventSource if args.input_format == "lact" else SimtelEventSource
         tels = [int(tel_id) for tel_id in args.subarray.split(',')] if args.subarray else []
-        source = source_type(input_fname, -1, tels)
+        if is_real:
+            if tels:
+                raise ValueError("Real data telescope selection is defined by --mapping-file")
+            source = LactRealEventSource(
+                input_fname, args.mapping_file, max_events=-1,
+                config_str=json.dumps(config.get("source", {})),
+                pointing_file=args.pointing_file,
+                pointing_alt=args.pointing_alt, pointing_az=args.pointing_az,
+                analysis_file=args.analysis_file,
+            )
+            calibrator = LactRealCalibrator(
+                args.calibration_file, config_str=json.dumps(config.get("calibrator", {})))
+        else:
+            source_type = LactEventSource if args.input_format == "lact" else SimtelEventSource
+            source = source_type(input_fname, -1, tels)
+            calibrator = (None if args.input_format == "lact" else
+                          Calibrator(source.subarray, config_str=json.dumps(config.get("calibrator", {}))))
         if args.atmosphere_profile:
             source.load_atmosphere_model(args.atmosphere_profile)
-        calibrator = (None if args.input_format == "lact" else
-                      Calibrator(source.subarray, config_str=json.dumps(config.get("calibrator", {}))))
         image_processor = ImageProcessor(source.subarray, config_str=json.dumps(config.get("image_processor", {})))
-        shower_processor = ShowerProcessor(source.subarray, config_str=json.dumps(config.get("shower_processor", {})))
+        shower_processor = ShowerProcessor(source.subarray, config_str=json.dumps(shower_config))
         writer_config = dict(config.get("data_writer", {}))
+        if is_real:
+            writer_config.get("DataWriter", writer_config).update(
+                write_simulation_shower=False, write_simulated_camera=False,
+                write_simulated_camera_image=False, write_simulation_config=False,
+                write_pointing=True)
         if args.atmosphere_profile or (args.input_format == "lact" and source.atmosphere_model is not None):
             writer_config["write_atmosphere_model"] = True
         data_writer = DataWriter(getattr(source, "_source", source), output_fname,
@@ -116,16 +162,22 @@ def enhanced_hillas_reco(args):
         visualizer, plot_dir = _make_event_plotter(source, args)
         
         plot_count = 0
+        reported_missing_pointing = False
         for event_index, event in enumerate(source):
             if calibrator is not None:
                 calibrator(event)
             image_processor(event)
-            shower_processor(event)
+            if not is_real or event.pointing is not None:
+                shower_processor(event)
+            elif not reported_missing_pointing:
+                print("No telescope pointing: saving calibrated images without shower reconstruction")
+                reported_missing_pointing = True
             if _maybe_plot_event(visualizer, plot_dir, event, event_index, input_index, plot_count, args):
                 plot_count += 1
             data_writer(event)
 
-        data_writer.write_all_simulation_shower(source.shower_array)
+        if not is_real:
+            data_writer.write_all_simulation_shower(source.shower_array)
         data_writer.close()
         del source, data_writer, calibrator, shower_processor, image_processor
     
@@ -135,8 +187,15 @@ def main():
     parser = argparse.ArgumentParser(description='Hillas reconstruction tool')
     parser.add_argument('--enhanced', action='store_true', 
                        help='Use enhanced Hillas reconstruction implementation')
-    parser.add_argument('--input-format', choices=['simtel', 'lact'],
-                        help='Use lact for LACTsim ROOT inputs (already detector-level images)')
+    parser.add_argument('--input-format', choices=['simtel', 'lact', 'real'],
+                        help='Input format: simtel, LACTsim ROOT images, or measured LACT ROOT data')
+    parser.add_argument('--mapping-file', help='Pixel mapping CSV for measured data')
+    parser.add_argument('--calibration-file', help='Calibration constants for measured data')
+    parser.add_argument('--analysis-file',
+                        help='Matched official eventShow ML pulse summary for raw waveform data')
+    parser.add_argument('--pointing-file', help='Telescope pointing table for measured data')
+    parser.add_argument('--pointing-alt', type=float, help='Measured telescope altitude in degrees')
+    parser.add_argument('--pointing-az', type=float, help='Measured telescope azimuth in degrees')
     parser.add_argument('--atmosphere-profile',
                         help='Matched four-column atmosphere profile: km, g/cm3, g/cm2, n-1')
     

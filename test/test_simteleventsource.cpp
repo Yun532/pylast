@@ -4,6 +4,72 @@
 #include "SimtelEventSource.hh"
 #include <filesystem>
 
+namespace {
+class CountingEventSource : public EventSource {
+public:
+    CountingEventSource(int available, int limit) : available(available) {
+        max_events = limit;
+        load_simulated_showers = false;
+    }
+    int reads = 0;
+    bool has_current_event() const { return current_event.has_value(); }
+    void load_all_simulated_showers() override {}
+
+protected:
+    bool is_finished() override { return current_event_index >= available; }
+    ArrayEvent get_event() override {
+        ++reads;
+        if (is_finished()) throw std::runtime_error("read beyond available events");
+        ArrayEvent event;
+        event.event_id = current_event_index;
+        return event;
+    }
+    void open_file() override {}
+    void init_metaparam() override {}
+    void init_atmosphere_model() override {}
+    void init_simulation_config() override {}
+    void init_subarray() override {}
+
+private:
+    int available;
+};
+}
+
+TEST_CASE("EventSource iterator end never reads and empty begin stays empty")
+{
+    for (int available : {0, 3}) {
+        CountingEventSource source(available, 0);
+        auto end = source.end(); // Mimic make_iterator evaluating end first.
+        CHECK(source.reads == 0);
+        CHECK_FALSE(source.has_current_event());
+        auto begin = source.begin();
+        CHECK(source.reads == 0);
+        CHECK(begin == end);
+    }
+    CountingEventSource exhausted(0, -1);
+    CHECK(exhausted.begin() == exhausted.end());
+    CHECK(exhausted.reads == 0);
+}
+
+TEST_CASE("EventSource iterator reads the first event once and advances to the end")
+{
+    for (int limit : {3, -1}) {
+        CountingEventSource source(3, limit);
+        auto end = source.end();
+        CHECK(source.reads == 0);
+        CHECK_FALSE(source.has_current_event());
+        auto current = source.begin();
+        for (int index = 0; index < 3; ++index) {
+            REQUIRE(current != end);
+            CHECK((*current).event_id == index);
+            CHECK(source.reads == index + 1);
+            ++current;
+        }
+        CHECK(current == end);
+        CHECK(source.reads == 3);
+    }
+}
+
 TEST_CASE("SimtelEventSourceInitialize")
 {
     SUBCASE("FileNotExist")

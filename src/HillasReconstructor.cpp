@@ -83,7 +83,9 @@ void HillasReconstructor::operator()(ArrayEvent& event)
             }
         }
     }
-    geometry.direction_error = compute_angle_separation(event.simulation->shower.az, event.simulation->shower.alt, geometry.az, geometry.alt);
+    if (event.simulation) {
+        geometry.direction_error = compute_angle_separation(event.simulation->shower.az, event.simulation->shower.alt, geometry.az, geometry.alt);
+    }
     event.dl2->geometry[this->name()] = geometry;
 }
 bool HillasReconstructor::reconstruct(const std::unordered_map<int, HillasParameter>& hillas_dicts)

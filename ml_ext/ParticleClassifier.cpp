@@ -34,7 +34,9 @@ void ParticleClassifier::operator()(ArrayEvent &event) {
     double score = classifier_model_loader->predict(rec_offset, event, tel_id);
     tel_scores(i) = score;
     event.dl2->set_tel_estimate_hadroness(tel_id, score);
-    weights(i) = event.simulation->tels[tel_id]->image_parameters.hillas.intensity;
+    weights(i) = use_fake_hillas
+        ? event.simulation->tels.at(tel_id)->image_parameters.hillas.intensity
+        : event.dl1->tels.at(tel_id)->image_parameters.hillas.intensity;
   }
   
   double weighted_score =

@@ -57,6 +57,8 @@ def _place_detail_boxes(ax, boxes, vertices, image):
     pixel_min, pixel_max = points.min(axis=1), points.max(axis=1)
     charge = np.abs(np.ma.filled(np.ma.masked_invalid(image), 0))
     annotations = [text.get_window_extent() for text in ax.texts if text.get_text()]
+    legend = ax.get_legend()
+    legend_bounds = legend.get_window_extent().padded(ax.figure.dpi * 6 / 72) if legend is not None else None
     candidates = []
     for box in boxes:
         options = []
@@ -72,6 +74,9 @@ def _place_detail_boxes(ax, boxes, vertices, image):
     def score(positions):
         overlap = 0.0
         for i, (_, bounds, _, _) in enumerate(positions):
+            if legend_bounds is not None:
+                overlap += (max(0, min(bounds.x1, legend_bounds.x1) - max(bounds.x0, legend_bounds.x0))
+                            * max(0, min(bounds.y1, legend_bounds.y1) - max(bounds.y0, legend_bounds.y0)))
             for _, other, _, _ in positions[i + 1:]:
                 overlap += (max(0, min(bounds.x1, other.x1) - max(bounds.x0, other.x0))
                             * max(0, min(bounds.y1, other.y1) - max(bounds.y0, other.y0)))
@@ -106,6 +111,7 @@ class EventData:
     image_by_tel: Dict[int, np.ndarray]
     image_sum_by_tel: Dict[int, float]
     active_tels: np.ndarray
+    is_led: Optional[bool] = None
 
 
 @dataclass
@@ -306,9 +312,9 @@ def _event_info_text(
     lines = []
     if event_id is not None:
         lines.append(f"event_id = {event_id}")
-    if core_x is not None and core_y is not None:
+    if core_x is not None and core_y is not None and np.all(np.isfinite([core_x, core_y])):
         lines.append(f"core: east = {core_x:.1f} m, north = {core_y:.1f} m")
-    if arrival_az is not None:
+    if arrival_az is not None and np.isfinite(arrival_az):
         lines.append(f"truth az = {arrival_az:.2f} deg")
     if ground_counts:
         lines.append(
@@ -559,20 +565,22 @@ def _event_id(event) -> int:
     return int(getattr(event, "event_id", getattr(event, "count", 0)))
 
 
+def _event_label(event) -> str:
+    return f"{_event_id(event)}" + (" (LED)" if getattr(event, "is_led", None) is True else "")
+
+
 def _shower(event):
-    if not hasattr(event, "simulation") or event.simulation is None:
-        raise ValueError("event has no simulation shower information")
-    return event.simulation.shower
+    return getattr(getattr(event, "simulation", None), "shower", None)
 
 
 def _image_from_event(event, tel_id: int, image_level: str) -> np.ndarray:
     if image_level == "simulation":
-        if event.simulation is None or tel_id not in event.simulation.tels:
+        if getattr(event, "simulation", None) is None or tel_id not in event.simulation.tels:
             return np.array([], dtype=float)
         return _to_numpy(event.simulation.tels[tel_id].true_image)
 
     if image_level in {"simulation_fake", "simulation_fake_clean"}:
-        if event.simulation is None or tel_id not in event.simulation.tels:
+        if getattr(event, "simulation", None) is None or tel_id not in event.simulation.tels:
             return np.array([], dtype=float)
         camera = event.simulation.tels[tel_id]
         image = _to_numpy(camera.fake_image)
@@ -620,21 +628,24 @@ def read_event_data(event, tel_geoms: Mapping[int, TelescopeGeometry], image_lev
         dtype=int,
     )
 
-    altitude = float(shower.alt)
-    azimuth = float(shower.az)
-    core_x, core_y = _ground_to_plot_xy(shower.core_x, shower.core_y)
+    altitude = float(getattr(shower, "alt", np.nan))
+    azimuth = float(getattr(shower, "az", np.nan))
+    core_x, core_y = _ground_to_plot_xy(
+        float(getattr(shower, "core_x", np.nan)), float(getattr(shower, "core_y", np.nan))
+    )
     return EventData(
         event_id=_event_id(event),
-        energy=float(shower.energy),
+        energy=float(getattr(shower, "energy", np.nan)),
         core_x=core_x,
         core_y=core_y,
         zenith_deg=float(90.0 - _deg(altitude)),
         azimuth_deg=float(_deg(azimuth)),
-        x_max=float(shower.x_max),
-        first_interaction_height=float(shower.h_first_int),
+        x_max=float(getattr(shower, "x_max", np.nan)),
+        first_interaction_height=float(getattr(shower, "h_first_int", np.nan)),
         image_by_tel=image_by_tel,
         image_sum_by_tel=image_sum_by_tel,
         active_tels=active_tels,
+        is_led=getattr(event, "is_led", None),
     )
 
 
@@ -768,6 +779,7 @@ class EventVisualizer:
         reconstructor: str = "HillasReconstructor",
         show: bool = True,
         finish: bool = True,
+        external_reconstructions=None,
     ):
         data = read_event_data(event, self.tel_geoms, image_level=image_level)
         tel_ids = sorted(self.tel_geoms)
@@ -874,18 +886,19 @@ class EventVisualizer:
             core_x, core_y = data.core_x, data.core_y
         else:
             core_x, core_y = core_position
-        ax.scatter(
-            [core_x],
-            [core_y],
-            marker="*",
-            s=230,
-            c="#d73027",
-            edgecolor="white",
-            linewidth=0.8,
-            label="True core",
-            zorder=6,
-        )
-        if show_truth_direction and data.azimuth_deg is not None:
+        if np.all(np.isfinite([core_x, core_y])):
+            ax.scatter(
+                [core_x],
+                [core_y],
+                marker="*",
+                s=230,
+                c="#d73027",
+                edgecolor="white",
+                linewidth=0.8,
+                label="True core",
+                zorder=6,
+            )
+        if show_truth_direction and np.all(np.isfinite([core_x, core_y, data.azimuth_deg])):
             _add_arrival_arrow(
                 ax,
                 core_x,
@@ -925,9 +938,9 @@ class EventVisualizer:
                 )
         ax.set_xlabel("East (m)")
         ax.set_ylabel("North (m)")
-        ax.set_title(f"LACT array event_id={data.event_id}")
-        extra_x = [core_x]
-        extra_y = [core_y]
+        ax.set_title(f"LACT array event_id={_event_label(event)}")
+        extra_x = [core_x] if np.isfinite(core_x) else []
+        extra_y = [core_y] if np.isfinite(core_y) else []
         if reco_core is not None:
             extra_x.append(reco_core[0])
             extra_y.append(reco_core[1])
@@ -979,6 +992,9 @@ class EventVisualizer:
                 color="0.12",
                 bbox=dict(boxstyle="round,pad=0.28", facecolor="white", edgecolor="0.55", alpha=0.94),
             )
+        if external_reconstructions:
+            from .real_data import draw_external_event_cores
+            draw_external_event_cores(ax, external_reconstructions, event_id=data.event_id, event=event)
         handles, labels = ax.get_legend_handles_labels()
         if handles and finish:
             by_label = dict(zip(labels, handles))
@@ -1061,6 +1077,7 @@ class EventVisualizer:
         show_reco_direction: bool = True,
         reconstructor: str = "HillasReconstructor",
         show: bool = True,
+        external_reconstructions=None,
     ):
         return self.plot_telescopes(
             event,
@@ -1072,6 +1089,7 @@ class EventVisualizer:
             show_reco_direction=show_reco_direction,
             reconstructor=reconstructor,
             show=show,
+            external_reconstructions=external_reconstructions,
         )
 
     def plot_pe_time_series(
@@ -1118,8 +1136,19 @@ class EventVisualizer:
         if show_trigger and get_trigger_timing is not None:
             trigger_timing = get_trigger_timing(event)
 
+        axis_key = "absolute_time_ns" if absolute_time else "time_centers_ns"
+        waveform_metadata = {
+            telescope_id: (get_waveform_timing(event, telescope_id)
+                           if get_waveform_timing is not None else {})
+            for telescope_id in telescope_ids
+        }
+        has_time_axis = all(
+            np.asarray(waveform_metadata[telescope_id].get(axis_key, [])).size
+            == np.asarray(telescope_waveforms[telescope_id].waveform).shape[-1]
+            and np.all(np.isfinite(waveform_metadata[telescope_id].get(axis_key, [])))
+            for telescope_id in telescope_ids
+        )
         fig, ax = plt.subplots(figsize=(10.2, 6.2), constrained_layout=True)
-        used_absolute_time = absolute_time
         for telescope_id in telescope_ids:
             camera = telescope_waveforms[telescope_id]
             waveform = np.asarray(camera.waveform, dtype=float)
@@ -1131,19 +1160,10 @@ class EventVisualizer:
             if cumulative:
                 pe_per_bin = np.cumsum(pe_per_bin)
 
-            metadata = (
-                get_waveform_timing(event, telescope_id)
-                if get_waveform_timing is not None else {}
-            )
-            axis_key = "absolute_time_ns" if absolute_time else "time_centers_ns"
+            metadata = waveform_metadata[telescope_id]
             time_axis = np.asarray(metadata.get(axis_key, []), dtype=float)
-            has_time_axis = (
-                time_axis.size == pe_per_bin.size
-                and np.all(np.isfinite(time_axis))
-            )
             if not has_time_axis:
                 time_axis = np.arange(pe_per_bin.size, dtype=float)
-                used_absolute_time = False
             line, = ax.plot(
                 time_axis,
                 pe_per_bin,
@@ -1188,16 +1208,14 @@ class EventVisualizer:
                         label=f"T{telescope_id + 1} max multiplicity",
                     )
 
-        reference = "absolute arrival time" if used_absolute_time else (
-            "waveform time relative to its configured reference"
-        )
-        ax.set_xlabel(f"{reference} (ns)")
+        reference = "absolute arrival time" if absolute_time else "waveform time relative to its configured reference"
+        ax.set_xlabel(f"{reference} (ns)" if has_time_axis else "Waveform sample index")
         ax.set_ylabel(
             "Cumulative integrated p.e."
-            if cumulative else "Camera-integrated p.e. per time bin"
+            if cumulative else ("Camera-integrated p.e. per time bin" if has_time_axis else "Camera-integrated p.e. per sample")
         )
         ax.set_title(
-            f"LACT p.e. time series event_id={getattr(event, 'event_id', '')}"
+            f"LACT p.e. time series event_id={_event_label(event)}"
         )
         ax.grid(True, alpha=0.25)
         ax.tick_params(direction="in", top=True, right=True)
@@ -1506,7 +1524,7 @@ class EventVisualizer:
                 float(np.max(limit_north)) + array_pad,
             )
             ax.set_title(
-                f"LACT {timing_label} timing event_id={data.event_id} | "
+                f"LACT {timing_label} timing event_id={_event_label(event)} | "
                 f"raw {first_span:.1f} ns → corrected {corrected_span:.1f} ns"
             )
             ax.set_xlabel("East (m)")
@@ -1584,7 +1602,7 @@ class EventVisualizer:
                     line_style="--",
                     show_labels=False,
                 )
-        ax.set_title(f"LACT SDP planes event_id={data.event_id}")
+        ax.set_title(f"LACT SDP planes event_id={_event_label(event)}")
         handles, labels = ax.get_legend_handles_labels()
         if handles:
             ax.legend(handles, labels, loc="upper right", fontsize=8, frameon=True)
@@ -1625,7 +1643,9 @@ class EventVisualizer:
 
         shower = _shower(event)
         core = np.array([data.core_x, data.core_y, 0.0], dtype=float)
-        truth_axis = _enu_from_az_zd(float(shower.az), np.pi / 2 - float(shower.alt))
+        truth_axis = (_enu_from_az_zd(float(shower.az), np.pi / 2 - float(shower.alt))
+                      if shower is not None else np.full(3, np.nan))
+        has_truth = np.all(np.isfinite([*core, *truth_axis]))
         if truth_axis[2] < 0:
             truth_axis = -truth_axis
         if abs(truth_axis[2]) < 1.0e-6:
@@ -1635,11 +1655,10 @@ class EventVisualizer:
         fig = plt.figure(figsize=(11, 8))
         ax = fig.add_subplot(111, projection="3d")
 
-        all_x = [core[0], axis_top[0]]
-        all_y = [core[1], axis_top[1]]
+        all_x = [core[0], axis_top[0]] if has_truth else [g.pos_x for g in self.tel_geoms.values()]
+        all_y = [core[1], axis_top[1]] if has_truth else [g.pos_y for g in self.tel_geoms.values()]
         colors = plt.cm.tab20(np.linspace(0, 1, max(len(tel_ids), 1)))
         plane_half_width = max(80.0, 0.12 * max(1.0, np.ptp([g.pos_x for g in self.tel_geoms.values()])))
-        axis_samples = np.linspace(0.0, z_max / truth_axis[2], 2)
         offset_samples = np.linspace(-plane_half_width, plane_half_width, 2)
         if not tel_ids:
             ax.text2D(
@@ -1704,25 +1723,16 @@ class EventVisualizer:
             all_x.append(geom.pos_x)
             all_y.append(geom.pos_y)
 
-        draw_plane_family(
-            truth_axis,
-            core,
-            line_color=None,
-            surface_color=None,
-            line_style="-",
-            alpha=0.13,
-            label_prefix="True SDP planes",
-        )
-
-        ax.scatter([core[0]], [core[1]], [0.0], marker="*", s=180, color="#b2182b", label="True core")
-        ax.plot(
-            [core[0], axis_top[0]],
-            [core[1], axis_top[1]],
-            [core[2], axis_top[2]],
-            color="#b2182b",
-            linewidth=2.4,
-            label="True shower axis / SDP intersection",
-        )
+        if has_truth:
+            draw_plane_family(
+                truth_axis, core, line_color=None, surface_color=None,
+                line_style="-", alpha=0.13, label_prefix="True SDP planes",
+            )
+            ax.scatter([core[0]], [core[1]], [0.0], marker="*", s=180, color="#b2182b", label="True core")
+            ax.plot(
+                [core[0], axis_top[0]], [core[1], axis_top[1]], [core[2], axis_top[2]],
+                color="#b2182b", linewidth=2.4, label="True shower axis / SDP intersection",
+            )
 
         if show_reco:
             geometry = getattr(getattr(event, "dl2", None), "geometry", {}) or {}
@@ -1730,7 +1740,7 @@ class EventVisualizer:
             if reco is not None and bool(getattr(reco, "is_valid", False)):
                 reco_alt = float(getattr(reco, "alt", np.nan))
                 reco_az = float(getattr(reco, "az", np.nan))
-                if np.isfinite(reco_alt) and np.isfinite(reco_az):
+                if np.isfinite(reco_alt) and np.isfinite(reco_az) and (_reco_core_xy(reco) is not None or has_truth):
                     reco_core_xy = _reco_core_xy(reco)
                     if reco_core_xy is None:
                         reco_core_xy = (core[0], core[1])
@@ -1773,7 +1783,7 @@ class EventVisualizer:
         ax.set_xlabel("East (m)")
         ax.set_ylabel("North (m)")
         ax.set_zlabel("Height (m)")
-        ax.set_title(f"3D SDP planes event_id={data.event_id}")
+        ax.set_title(f"3D SDP planes event_id={_event_label(event)}")
         ax.set_zlim(0.0, z_max)
         x_mid = 0.5 * (float(np.min(all_x)) + float(np.max(all_x)))
         y_mid = 0.5 * (float(np.min(all_y)) + float(np.max(all_y)))
@@ -1782,7 +1792,8 @@ class EventVisualizer:
         ax.set_xlim(x_mid - xy_span / 2 - pad, x_mid + xy_span / 2 + pad)
         ax.set_ylim(y_mid - xy_span / 2 - pad, y_mid + xy_span / 2 + pad)
         ax.view_init(elev=24, azim=-58)
-        ax.legend(loc="upper left", fontsize=8)
+        if ax.get_legend_handles_labels()[0]:
+            ax.legend(loc="upper left", fontsize=8)
         fig.tight_layout()
         self._finish(fig, output_path, show)
         return fig, ax
@@ -1824,15 +1835,17 @@ class EventVisualizer:
 
         shower = _shower(event)
         true_core = np.array([data.core_x, data.core_y, 0.0], dtype=float)
-        true_axis = _enu_from_az_zd(float(shower.az), np.pi / 2 - float(shower.alt))
+        true_axis = (_enu_from_az_zd(float(shower.az), np.pi / 2 - float(shower.alt))
+                     if shower is not None else np.full(3, np.nan))
+        has_truth = np.all(np.isfinite([*true_core, *true_axis]))
         if true_axis[2] < 0:
             true_axis = -true_axis
         if abs(true_axis[2]) < 1.0e-6:
             true_axis[2] = 1.0e-6
         true_top = true_core + true_axis * (z_max / true_axis[2])
 
-        all_x = [true_core[0], true_top[0]]
-        all_y = [true_core[1], true_top[1]]
+        all_x = [true_core[0], true_top[0]] if has_truth else []
+        all_y = [true_core[1], true_top[1]] if has_truth else []
         traces = []
         palette = [mcolors.to_hex(c) for c in plt.cm.tab20(np.linspace(0, 1, max(len(tel_ids), 1)))]
         plane_half_width = max(100.0, 0.16 * max(1.0, np.ptp([g.pos_x for g in self.tel_geoms.values()])))
@@ -1962,7 +1975,7 @@ class EventVisualizer:
                 all_y.extend([line_a[1], line_b[1], float(np.min(surf[..., 1])), float(np.max(surf[..., 1]))])
                 family_added = True
 
-        if tel_ids:
+        if tel_ids and has_truth:
             add_plane_family(
                 true_axis,
                 true_core,
@@ -1972,8 +1985,9 @@ class EventVisualizer:
                 legend_prefix="Truth SDP",
                 group_prefix="truth_sdp",
             )
-        add_core(true_core, "#b2182b", "diamond", "True core", 8)
-        add_axis(true_core, true_top, "#b2182b", "True shower axis", dash="solid")
+        if has_truth:
+            add_core(true_core, "#b2182b", "diamond", "True core", 8)
+            add_axis(true_core, true_top, "#b2182b", "True shower axis", dash="solid")
 
         if show_reco:
             geometry = getattr(getattr(event, "dl2", None), "geometry", {}) or {}
@@ -1981,7 +1995,7 @@ class EventVisualizer:
             if reco is not None and bool(getattr(reco, "is_valid", False)):
                 reco_alt = float(getattr(reco, "alt", np.nan))
                 reco_az = float(getattr(reco, "az", np.nan))
-                if np.isfinite(reco_alt) and np.isfinite(reco_az):
+                if np.isfinite(reco_alt) and np.isfinite(reco_az) and (_reco_core_xy(reco) is not None or has_truth):
                     reco_core_xy = _reco_core_xy(reco)
                     if reco_core_xy is None:
                         reco_core_xy = (true_core[0], true_core[1])
@@ -2011,7 +2025,7 @@ class EventVisualizer:
         pad = 0.10 * xy_span
         fig = go.Figure(data=traces)
         fig.update_layout(
-            title=f"3D SDP geometry event_id={data.event_id}",
+            title=f"3D SDP geometry event_id={_event_label(event)}",
             template="plotly_white",
             width=1000,
             height=760,
@@ -2058,6 +2072,7 @@ class EventVisualizer:
         show_reco_sdp: bool = False,
         reconstructor: str = "HillasReconstructor",
         show: bool = True,
+        external_reconstructions=None,
     ):
         data = read_event_data(event, self.tel_geoms, image_level=image_level)
         hillas = self._get_hillas_parameters(event, image_level=image_level)
@@ -2117,6 +2132,9 @@ class EventVisualizer:
                 self._draw_reco_position(axes[index], event, reconstructor=reconstructor)
             if show_reco_sdp:
                 self._draw_reco_sdp_line(axes[index], event, tel_id, reconstructor=reconstructor)
+            if external_reconstructions:
+                from .real_data import draw_external_camera_overlays
+                draw_external_camera_overlays(self, axes[index], event, tel_id, external_reconstructions)
             _camera_legend(axes[index])
 
         for ax in axes[len(tel_ids) + 1 :]:
@@ -2131,6 +2149,7 @@ class EventVisualizer:
         image_level: str = "dl1", zoom: bool = False, cmap: str = "plasma",
         show_ideal_position: bool = False, show_reco_position: bool = False,
         reconstructor: str = "HillasReconstructor", show: bool = True,
+        external_reconstructions=None,
     ):
         """Show one camera with annotated, already computed Hillas parameters.
 
@@ -2207,6 +2226,10 @@ class EventVisualizer:
             self._draw_ideal_position(ax, event)
         if show_reco_position:
             self._draw_reco_position(ax, event, reconstructor=reconstructor)
+        if external_reconstructions:
+            from .real_data import draw_external_camera_overlays
+            draw_external_camera_overlays(self, ax, event, tel_id, external_reconstructions)
+            _camera_legend(ax)
 
         n_clean = str(np.count_nonzero(mask)) if mask is not None else "unavailable"
         rows = [("Selected pixels", n_clean)]
@@ -2256,7 +2279,7 @@ class EventVisualizer:
             ax.add_artist(box)
             setattr(ax, attribute, box)
             artists.append(box)
-        ax.set_title(f"LACT image event_id={_event_id(event)}", fontsize=16, pad=44)
+        ax.set_title(f"LACT image event_id={_event_label(event)}", fontsize=16, pad=44)
         fig.tight_layout()
         _place_detail_boxes(ax, artists, self._vertices_for(geom), shown_image)
         self._finish(fig, output_path, show)
@@ -2344,6 +2367,7 @@ class EventVisualizer:
         show_reco_sdp: bool = False,
         reconstructor: str = "HillasReconstructor",
         show: bool = True,
+        external_reconstructions=None,
     ):
         if only_hillas and only_image:
             raise ValueError("only_hillas and only_image cannot both be true")
@@ -2440,6 +2464,10 @@ class EventVisualizer:
         if show_reco_sdp:
             for tel_id in tel_ids:
                 self._draw_reco_sdp_line(ax, event, tel_id, reconstructor=reconstructor)
+        if external_reconstructions:
+            from .real_data import draw_external_camera_overlays
+            for tel_id in tel_ids:
+                draw_external_camera_overlays(self, ax, event, tel_id, external_reconstructions)
 
         _camera_legend(ax)
 
@@ -2528,13 +2556,21 @@ class EventVisualizer:
         return fig, axes
 
     def _event_text(self, data: EventData, n_tel: int, ground_counts: Optional[Mapping[str, float]] = None) -> str:
-        lines = [
-            f"Energy: {data.energy:.2f} TeV",
-            f"Core: (east={data.core_x:.1f}, north={data.core_y:.1f}) m",
-            f"Direction: (ze={data.zenith_deg:.1f} deg, az={data.azimuth_deg:.1f} deg)",
-            f"Xmax: {data.x_max:.1f} g/cm2",
-            f"First Int: {data.first_interaction_height:.1f} m",
-        ]
+        lines = []
+        if np.isfinite(data.energy):
+            lines.append(f"Energy: {data.energy:.2f} TeV")
+        if np.all(np.isfinite([data.core_x, data.core_y])):
+            lines.append(f"Core: (east={data.core_x:.1f}, north={data.core_y:.1f}) m")
+        if np.all(np.isfinite([data.zenith_deg, data.azimuth_deg])):
+            lines.append(f"Direction: (ze={data.zenith_deg:.1f} deg, az={data.azimuth_deg:.1f} deg)")
+        if np.isfinite(data.x_max):
+            lines.append(f"Xmax: {data.x_max:.1f} g/cm2")
+        if np.isfinite(data.first_interaction_height):
+            lines.append(f"First Int: {data.first_interaction_height:.1f} m")
+        if not lines:
+            lines.append(f"Event: {data.event_id}")
+        if data.is_led is True:
+            lines.append("LED calibration event")
         if ground_counts:
             lines.append(
                 "Ground: "

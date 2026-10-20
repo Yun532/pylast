@@ -10,6 +10,7 @@
 #include "nanobind/stl/optional.h"
 #include "LoggerInitialize.hh"
 #include "LactEventSource.hh"
+#include "LactRealEventSource.hh"
 #include "RootEventSource.hh"
 #include "SimtelEventSource.hh"
 #include <stdexcept>
@@ -41,7 +42,7 @@ NB_MODULE(_pyeventsource, m){
                     source.begin(),
                     source.end()
                 );
-            });
+            }, nb::keep_alive<0, 1>());
     nb::class_<SimulationConfiguration>(m, "SimulationConfiguration")
         .def(nb::init<>())
         .def_ro("run_number", &SimulationConfiguration::run_number)
@@ -155,6 +156,17 @@ NB_MODULE(_pyeventsource, m){
         .def("__repr__", [](LactEventSource& self) {
             return fmt::format("LactEventSource(filename={})", self.input_filename);
         });
+    nb::class_<LactRealEventSource, EventSource>(m, "LactRealEventSource")
+        .def(nb::init<const std::string&, const std::string&, int64_t, const std::string&>(),
+             nb::arg("filename"), nb::arg("mapping_file"),
+             nb::arg("max_events") = -1, nb::arg("config_str") = "{}")
+        .def("__getitem__", &LactRealEventSource::operator[])
+        .def("__len__", [](const LactRealEventSource& self) { return self.max_events; })
+        .def_prop_ro("input_format", &LactRealEventSource::input_format)
+        .def_prop_ro("telescope_id", &LactRealEventSource::telescope_id)
+        .def("set_pointing", &LactRealEventSource::set_pointing,
+             nb::arg("event"), nb::arg("altitude_deg"), nb::arg("azimuth_deg"));
+    m.attr("LACT1EventSource") = m.attr("LactRealEventSource");
     nb::class_<SimtelEventSource, EventSource>(m, "SimtelEventSource")
         .def(nb::init<const std::string&, int64_t, std::vector<int>, bool>(), nb::arg("filename"), nb::arg("max_events") = -1, nb::arg("subarray")=std::vector<int>{}, nb::arg("load_simulated_showers")=false)
         .def_prop_ro("shower_array", &SimtelEventSource::get_shower_array)

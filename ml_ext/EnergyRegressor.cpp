@@ -39,8 +39,9 @@ void EnergyRegressor::operator()(ArrayEvent &event) {
     double tel_energy;
     tel_energy = energy_offset_estimator->predict(rec_offset, event, tel_id);
     tel_energies(i) = pow(10, tel_energy);
-    weights(i) =
-        event.simulation->tels[tel_id]->image_parameters.hillas.intensity;
+    weights(i) = use_fake_hillas
+        ? event.simulation->tels.at(tel_id)->image_parameters.hillas.intensity
+        : event.dl1->tels.at(tel_id)->image_parameters.hillas.intensity;
     event.dl2->set_tel_estimate_energy(tel_id, tel_energy);
   }
   energy_reco.estimate_energy =

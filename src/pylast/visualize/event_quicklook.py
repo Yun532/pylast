@@ -69,6 +69,7 @@ def plot_event_cores(
     output_path: str | PathLike[str] | None = None,
     include_non_triggered: bool = False,
     show: bool | None = None,
+    external_reconstructions=None,
 ):
     """Draw the LACT array/core view from an already loaded event.
 
@@ -90,6 +91,7 @@ def plot_event_cores(
             output_path=output_path,
             include_non_triggered=include_non_triggered,
             show=show,
+            external_reconstructions=external_reconstructions,
         )
     if event is None:
         raise ValueError("event is required")
@@ -103,6 +105,7 @@ def plot_event_cores(
         image_level=image_level,
         include_non_triggered=include_non_triggered,
         show=show,
+        external_reconstructions=external_reconstructions,
     )
     return {
         "event": event,
@@ -376,6 +379,7 @@ def plot_image_detail(
     show_ideal_position: bool = False, show_reco_position: bool = False,
     reconstructor: str = "HillasReconstructor",
     output_path: str | PathLike[str] | None = None, show: bool | None = None,
+    external_reconstructions=None,
 ):
     """Detailed Hillas view of one loaded image; run ImageProcessor first.
 
@@ -392,6 +396,7 @@ def plot_image_detail(
         show_reco_position=show_reco_position, reconstructor=reconstructor,
         output_path=str(output_path) if output_path is not None else None,
         show=output_path is None if show is None else show,
+        external_reconstructions=external_reconstructions,
     )
     return {"event": event, "visualizer": visualizer, "figure": figure,
             "axes": axis, "path": Path(output_path) if output_path is not None else None}
@@ -419,6 +424,7 @@ def plot_event_cameras(
     output_path: str | PathLike[str] | None = None,
     include_non_triggered: bool = False,
     show: bool | None = None,
+    external_reconstructions=None,
 ):
     """Draw camera images from an already loaded event."""
 
@@ -449,6 +455,7 @@ def plot_event_cameras(
             output_path=output_path,
             include_non_triggered=include_non_triggered,
             show=show,
+            external_reconstructions=external_reconstructions,
         )
     if event is None:
         raise ValueError("event is required")
@@ -469,6 +476,7 @@ def plot_event_cameras(
         show_reco_sdp=show_reco_sdp,
         reconstructor=reconstructor,
         show=show,
+        external_reconstructions=external_reconstructions,
     )
     return {
         "event": event,
@@ -499,6 +507,7 @@ def plot_raw_images(
     show_reco_position: bool = False,
     reconstructor: str = "HillasReconstructor",
     show: bool | None = None,
+    external_reconstructions=None,
 ):
     """Draw raw integrated camera images from an event.
 
@@ -527,6 +536,7 @@ def plot_raw_images(
         output_path=output_path,
         include_non_triggered=include_non_triggered,
         show=show,
+        external_reconstructions=external_reconstructions,
     )
 
 
@@ -557,6 +567,7 @@ def plot_gathered_images(
     show_reco_position: bool = False,
     reconstructor: str = "HillasReconstructor",
     show: bool | None = None,
+    external_reconstructions=None,
 ):
     """Draw all selected telescope images in one gathered camera plane.
 
@@ -603,6 +614,7 @@ def plot_gathered_images(
         show_reco_sdp=show_reco_sdp,
         reconstructor=reconstructor,
         show=show,
+        external_reconstructions=external_reconstructions,
     )
     result = {
         "event": event,
@@ -641,6 +653,7 @@ def plot_clean_images(
     reco_sdp: bool | None = None,
     reconstructor: str = "HillasReconstructor",
     show: bool | None = None,
+    external_reconstructions=None,
 ):
     """Draw cleaned camera images from an event.
 
@@ -668,6 +681,7 @@ def plot_clean_images(
         output_path=output_path,
         include_non_triggered=include_non_triggered,
         show=show,
+        external_reconstructions=external_reconstructions,
     )
 
 
@@ -679,6 +693,7 @@ def plot_root_event_cores(
     output_path: str | PathLike[str] | None = None,
     include_non_triggered: bool = False,
     show: bool | None = None,
+    external_reconstructions=None,
 ):
     """Read one LACT ROOT event and draw the array/core view."""
 
@@ -691,6 +706,7 @@ def plot_root_event_cores(
         output_path=output_path,
         include_non_triggered=include_non_triggered,
         show=show,
+        external_reconstructions=external_reconstructions,
     )
     result["source"] = source
     return result
@@ -797,6 +813,7 @@ def plot_root_event_cameras(
     output_path: str | PathLike[str] | None = None,
     include_non_triggered: bool = False,
     show: bool | None = None,
+    external_reconstructions=None,
 ):
     """Read one LACT ROOT event and draw camera images."""
 
@@ -824,6 +841,7 @@ def plot_root_event_cameras(
         output_path=output_path,
         include_non_triggered=include_non_triggered,
         show=show,
+        external_reconstructions=external_reconstructions,
     )
     result["source"] = source
     return result

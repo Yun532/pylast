@@ -1,0 +1,38 @@
+{
+  "source": {
+    "tel_id": 0,
+    "focal_length_m": 8.0,
+    "pixel_width_m": 0.0254,
+    "telescope_position_m": [-144.942718773876, -27.192936393245507, 0.0],
+    "tai_minus_utc_s": 37,
+    "sampling_interval_ns": 0.0
+  },
+  "calibrator": {
+    "gain_threshold_mv": 36.0,
+    "led_time_offset_s": -37.0
+  },
+  "image_processor": {
+    "image_cleaner_type": "Tailcuts_cleaner",
+    "Tailcuts_cleaner": {
+      "picture_thresh": 80.0,
+      "boundary_thresh": 40.0,
+      "keep_isolated_pixels": false,
+      "min_number_picture_neighbors": 2
+    }
+  },
+  "shower_processor": {
+    "GeometryReconstructionTypes": ["HillasReconstructor"],
+    "HillasReconstructor": {"use_fake_hillas": false}
+  },
+  "data_writer": {
+    "write_simulation_shower": false,
+    "write_simulated_camera": false,
+    "write_simulation_config": false,
+    "write_pointing": true,
+    "write_dl0": true,
+    "write_dl1": true,
+    "write_dl1_image": true,
+    "write_dl2": true,
+    "overwrite": false
+  }
+}

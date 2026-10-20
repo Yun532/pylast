@@ -56,7 +56,7 @@ void DataWriter::operator()(const ArrayEvent& event)
     {
         file_writer->write_simulation_shower(event);
     }
-    if(write_simulated_camera_enabled && event.simulation->tels.size() > 0)
+    if(write_simulated_camera_enabled && event.simulation && !event.simulation->tels.empty())
     {
         file_writer->write_simulated_camera(event, write_simulated_camera_image_enabled);
     }

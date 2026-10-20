@@ -2,6 +2,50 @@
 #define DOCTEST_CONFIG_IMPLEMENT_WITH_MAIN
 #include "doctest/doctest.h"
 #include "Coordinates.hh"
+#include "HillasReconstructor.hh"
+
+TEST_CASE("Hillas reconstruction accepts measured DL1 without simulation")
+{
+    SubarrayDescription subarray;
+    subarray.add_tel_pos(0, {0.0, 0.0, 0.0});
+    subarray.add_tel_pos(1, {100.0, 0.0, 0.0});
+    ArrayEvent event;
+    event.pointing.emplace();
+    event.pointing->set_array_pointing(0.0, 70.0 * M_PI / 180.0);
+    event.dl1.emplace();
+    for (int tel_id = 0; tel_id < 2; ++tel_id) {
+        event.pointing->add_tel(tel_id, 0.0, 70.0 * M_PI / 180.0);
+        auto* camera = event.dl1->add_tel(tel_id);
+        auto& hillas = camera->image_parameters.hillas;
+        hillas.x = tel_id == 0 ? 0.01 : -0.015;
+        hillas.y = tel_id == 0 ? 0.02 : 0.01;
+        hillas.psi = tel_id == 0 ? 0.2 : 1.0;
+        hillas.length = 0.02;
+        hillas.width = 0.005;
+        hillas.intensity = 200.0;
+    }
+    HillasReconstructor reconstructor(subarray, json{
+        {"use_fake_hillas", false}, {"ImageQuery", "hillas_intensity > 100"}});
+    reconstructor(event);
+    const auto& geometry = event.dl2->geometry.at("HillasReconstructor");
+    REQUIRE(geometry.is_valid);
+    CHECK(std::isfinite(geometry.alt));
+    CHECK(std::isfinite(geometry.core_x));
+    CHECK(std::isnan(geometry.direction_error));
+    // The same DL1 path retains the MC comparison when truth is available.
+    event.simulation.emplace();
+    event.simulation->shower.az = geometry.az;
+    event.simulation->shower.alt = geometry.alt;
+    reconstructor(event);
+    CHECK(event.dl2->geometry.at("HillasReconstructor").direction_error == doctest::Approx(0.0));
+}
+
+TEST_CASE("Reconstruction reports missing pointing")
+{
+    Reconstructor reconstructor(json{{"use_fake_hillas", false}});
+    ArrayEvent event;
+    CHECK_THROWS_WITH_AS(reconstructor(event), "pointing data is not available for reconstruction", std::runtime_error);
+}
 
 TEST_CASE("TEST_SPHERICAL_CONVERT_TO_CARTESIAN")
 {

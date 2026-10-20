@@ -38,7 +38,7 @@ include_directories(${CMAKE_CURRENT_SOURCE_DIR}/../root)
 add_python_binding(_pylast_arrayevent  pyarrayevent_bind.cpp "" "")
 add_python_binding(_pylast_subarray pysubarray_bind.cpp basic_event "")
 add_python_binding(_pylast_imageprocessor pyimageprocessor_bind.cpp image_processor "")
-add_python_binding(_pylast_calibrator pycalibrator_bind.cpp calibrator "")
+add_python_binding(_pylast_calibrator pycalibrator_bind.cpp "calibrator;lact_real_data" "")
 set(PYEVENTSOURCE_SOURCES
     pyeventsource_bind.cpp
 )
@@ -48,7 +48,7 @@ set(DATAWRITER_SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/../root/RootWriter.cpp
 )
 
-set(EVENTSOURCE_LIBRARIES basic_event simtel_event root_event lact_event_source)
+set(EVENTSOURCE_LIBRARIES basic_event simtel_event root_event lact_event_source lact_real_data)
 add_python_binding(_pystatistic pystatistic_bind.cpp "" "")
 add_python_binding(_pyeventsource "${PYEVENTSOURCE_SOURCES}" "${EVENTSOURCE_LIBRARIES}" _pylast_arrayevent)
 

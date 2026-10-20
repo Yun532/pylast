@@ -449,17 +449,35 @@ void bind_pointing_event(nb::module_ &m) {
         });
 }
 void bind_array_event(nb::module_ &m) {
+    nb::class_<CalibCamera>(m, "CalibCamera")
+        .def_ro("base", &CalibCamera::base)
+        .def_ro("peak", &CalibCamera::peak)
+        .def_ro("area", &CalibCamera::area)
+        .def_ro("peak_sample", &CalibCamera::peak_sample)
+        .def_ro("peak_time", &CalibCamera::peak_time)
+        .def_ro("pe", &CalibCamera::pe)
+        .def_ro("count_to_pe", &CalibCamera::count_to_pe)
+        .def_ro("valid", &CalibCamera::valid)
+        .def_ro("waveform", &CalibCamera::waveform)
+        .def_ro("sampling_interval_ns", &CalibCamera::sampling_interval_ns);
+    nb::class_<CalibEvent>(m, "CalibEvent").def_prop_ro("tels", &CalibEvent::get_tels);
     nb::class_<ArrayEvent>(m, "ArrayEvent")
         .def_ro("simulation", &ArrayEvent::simulation)
         .def_ro("r0", &ArrayEvent::r0)
         .def_ro("monitor", &ArrayEvent::monitor)
         .def_ro("r1", &ArrayEvent::r1)
+        .def_ro("c1", &ArrayEvent::c1)
         .def_ro("dl0", &ArrayEvent::dl0)
         .def_ro("dl1", &ArrayEvent::dl1)
         .def_ro("dl2", &ArrayEvent::dl2, nb::rv_policy::reference_internal)
         .def_ro("pointing", &ArrayEvent::pointing)
         .def_ro("event_id", &ArrayEvent::event_id)
         .def_ro("run_id", &ArrayEvent::run_id)
+        .def_ro("time_mjd", &ArrayEvent::time_mjd)
+        .def_prop_ro("mjd", [](const ArrayEvent& self) { return self.time_mjd; })
+        .def_ro("rabbit_time", &ArrayEvent::rabbit_time)
+        .def_ro("rabbit_tick", &ArrayEvent::rabbit_tick)
+        .def_ro("is_led", &ArrayEvent::is_led)
         .def("__repr__", [](ArrayEvent& self) {
             std::string repr = "ArrayEvent:\n";
             

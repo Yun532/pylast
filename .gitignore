@@ -1046,6 +1046,7 @@ Test/
 !/test/
 /test/*
 !/test/test_image_detail.py
+!/test/test_real_data_visualize.py
 Release/
 .vscode/
 build*/

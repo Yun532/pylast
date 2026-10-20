@@ -30,6 +30,20 @@ TEST_CASE("WRITE_ALL_SIMULATION_SHOWER")
         RootEventSource root_source("test2.root", -1, {}, false);
         CHECK(root_source.get_shower_array().size() == source.get_shower_array().size());
     }
+    SUBCASE("measured_event_without_simulation")
+    {
+        SimtelEventSource source(test_file.string(), 1, {}, false);
+        DataWriter writer(source, "measured_no_simulation.root");
+        for (auto& event : source) {
+            event.simulation.reset();
+            CHECK_NOTHROW(writer(event));
+        }
+        writer.close();
+        TFile output("measured_no_simulation.root", "READ");
+        CHECK_FALSE(output.IsZombie());
+        CHECK(output.Get("events/event_index") != nullptr);
+        CHECK(output.Get("events/simulation/shower") == nullptr);
+    }
     
 
 }

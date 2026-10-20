@@ -345,6 +345,12 @@ void RootWriter::write_event_index(const ArrayEvent &event) {
   }
   helper.root_event_index->telescopes.clear();
   helper.root_event_index->event_id = event.event_id;
+  helper.root_event_index->run_id = event.run_id;
+  helper.root_event_index->time_mjd = event.time_mjd;
+  helper.root_event_index->rabbit_time = event.rabbit_time;
+  helper.root_event_index->rabbit_tick = event.rabbit_tick;
+  helper.root_event_index->is_led = event.is_led.has_value()
+      ? static_cast<std::int8_t>(*event.is_led) : -1;
 
   std::set<int> unique_telescopes;
   // Get telescopes from the first available data level

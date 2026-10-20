@@ -24,6 +24,11 @@ TTree *RootEventIndex::initialize_write(const std::string &name,
   TTree *tree = new TTree(name.c_str(), title.c_str());
   tree->Branch("event_id", &event_id);
   tree->Branch("telescopes", &telescopes);
+  tree->Branch("run_id", &run_id);
+  tree->Branch("time_mjd", &time_mjd);
+  tree->Branch("rabbit_time", &rabbit_time);
+  tree->Branch("rabbit_tick", &rabbit_tick);
+  tree->Branch("is_led", &is_led, "is_led/B");
   return tree;
 }
 
@@ -32,6 +37,12 @@ void RootEventIndex::initialize_read(TTree *tree) {
   telescopes_ptr = &telescopes;
   tree->SetBranchAddress("event_id", &event_id);
   tree->SetBranchAddress("telescopes", &telescopes_ptr);
+  // Older pylast ROOT files have no measured-data time metadata.
+  if (tree->GetBranch("run_id")) tree->SetBranchAddress("run_id", &run_id);
+  if (tree->GetBranch("time_mjd")) tree->SetBranchAddress("time_mjd", &time_mjd);
+  if (tree->GetBranch("rabbit_time")) tree->SetBranchAddress("rabbit_time", &rabbit_time);
+  if (tree->GetBranch("rabbit_tick")) tree->SetBranchAddress("rabbit_tick", &rabbit_tick);
+  if (tree->GetBranch("is_led")) tree->SetBranchAddress("is_led", &is_led);
 }
 
 ArrayEvent RootEventHelper::get_event() {
@@ -41,6 +52,15 @@ ArrayEvent RootEventHelper::get_event() {
   }
   root_event_index->get_entry(current_entry);
   event.event_id = root_event_index->event_id;
+  event.run_id = root_event_index->run_id;
+  event.time_mjd = root_event_index->time_mjd;
+  event.rabbit_time = root_event_index->rabbit_time;
+  event.rabbit_tick = root_event_index->rabbit_tick;
+  if (root_event_index->is_led == 0 || root_event_index->is_led == 1) {
+    event.is_led = root_event_index->is_led == 1;
+  } else if (root_event_index->is_led != -1) {
+    throw std::runtime_error("Invalid is_led metadata: expected -1, 0 or 1");
+  }
 
   // Process simulation shower data (event-level, not telescope-level)
   process_event_level_data(event);

@@ -1,5 +1,6 @@
 from .SimtelEventSource import SimtelEventSource
 from .LactEventSource import LactEventSource
+from .LactRealEventSource import LactRealEventSource, LACT1EventSource
 from ..helper import DataWriter, RootEventSource
 
 try :

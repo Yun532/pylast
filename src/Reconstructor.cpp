@@ -17,6 +17,9 @@ void Reconstructor::setUp()
 }
 void Reconstructor::operator()(ArrayEvent& event)
 {
+    if (!event.pointing) {
+        throw std::runtime_error("pointing data is not available for reconstruction");
+    }
     array_pointing_direction = SphericalRepresentation(event.pointing->array_azimuth, event.pointing->array_altitude);
     telescopes.clear();
     if(use_fake_hillas )

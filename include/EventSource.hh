@@ -33,11 +33,7 @@ public:
             using value_type = ArrayEvent;
             using pointer = ArrayEvent*;
             using reference = ArrayEvent&;
-            Iterator(EventSource* source, int position):source_(source), position_(position){
-                if(position == 0 && source_){
-                    *source_->current_event = std::move(source_->get_event());
-                }
-            }
+            Iterator(EventSource* source, int position):source_(source), position_(position){}
             ArrayEvent& operator*() const {return *source_->current_event;}
 
             bool operator==(const Iterator& other) const{
@@ -121,7 +117,12 @@ public:
         if(!current_event){
             current_event.emplace();
         }
-        auto it =  Iterator(this, current_event_index);
+        // Only begin may read: end() can be evaluated first by the binding,
+        // including at position zero when no current event exists yet.
+        if(current_event_index == 0 && max_events != 0 && !is_finished()){
+            *current_event = get_event();
+        }
+        auto it = Iterator(this, current_event_index);
         return it;
     }
     Iterator end(){return Iterator(this, max_events);}

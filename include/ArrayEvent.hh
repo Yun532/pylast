@@ -23,6 +23,9 @@
 #include "DL1Event.hh"
 #include "DL2Event.hh"
 #include "Pointing.hh"
+#include "CalibEvent.hh"
+#include <cstdint>
+#include <limits>
 /**
  * @brief Main class to describe an array event
  * 
@@ -33,12 +36,17 @@ public:
     std::optional<SimulatedEvent> simulation;
     std::optional<R0Event> r0;
     std::optional<R1Event> r1;
+    std::optional<CalibEvent> c1;
     std::optional<EventMonitor> monitor;
     std::optional<DL0Event> dl0;
     std::optional<DL1Event> dl1;
     std::optional<Pointing> pointing;
     std::optional<DL2Event> dl2;
     std::unordered_map<int, HillasParameter> rounded_tel_hillas;
-    int event_id;
-    int run_id;
+    int event_id = 0;
+    int run_id = 0;
+    double time_mjd = std::numeric_limits<double>::quiet_NaN();
+    std::uint32_t rabbit_time = 0;
+    std::uint32_t rabbit_tick = 0;
+    std::optional<bool> is_led;
 };

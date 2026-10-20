@@ -135,18 +135,27 @@ std::vector<double> TelFeatureExtractor::extract_tel_features(const ArrayEvent& 
     std::vector<double> features;
     for(const auto& field : schema.specs) {
         if(field.level == DataLevel::DL1) {
+            if (!event.dl1 || !event.dl1->tels.contains(tel_id)) {
+                throw std::runtime_error("DL1 data is unavailable for feature " + field.name + " at telescope " + std::to_string(tel_id));
+            }
             if(!dl1_tel_fields.contains(field.name)) {
                 throw std::runtime_error("Field " + field.name + " not found in DL1 tel fields");
             }
             features.push_back(dl1_tel_fields.at(field.name).get(event, tel_id));
         }
         else if(field.level == DataLevel::DL2) {
+            if (!event.dl2) {
+                throw std::runtime_error("DL2 data is unavailable for feature " + field.name + " at telescope " + std::to_string(tel_id));
+            }
             if(!dl2_tel_fields.contains(field.name)) {
                 throw std::runtime_error("Field " + field.name + " not found in DL2 tel fields");
             }
             features.push_back(dl2_tel_fields.at(field.name).get(event, tel_id));
         }
         else if(field.level == DataLevel::Simulation) {
+            if (!event.simulation || !event.simulation->tels.contains(tel_id)) {
+                throw std::runtime_error("Simulation data is unavailable for feature " + field.name + " at telescope " + std::to_string(tel_id));
+            }
             if(!simulated_fields.contains(field.name)) {
                 throw std::runtime_error("Field " + field.name + " not found in simulated fields");
             }
