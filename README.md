@@ -30,5 +30,18 @@ interfaces is documented in
 The same two notebooks are stored in both LACT_sim and pyLAST. Set `INPUT_FILE`
 and `EVENT_ID` in Cell 1, then run all cells.
 
+## Optional mono and hybrid reconstruction
+
+The original C++ stereo chain is unchanged. Optional Python stages add frozen
+image-only mono direction/energy and stereo-first exact-one-image hybrid routing.
+See [the deployment and usage guide](docs/mono_hybrid_zh.md).
+
+Install with `pip install ".[mono]"` in a compatible ROOT/C++ environment.
+Trained models and calibrated cut tables are **external private assets**, supplied
+separately; they are not included in this repository or its distribution packages.
+
+The main development branch is `lact_sim`; `mono-hybrid` preserves the original
+standalone mono/hybrid version.
+
 
 

@@ -67,6 +67,17 @@ class RealDataCliTest(unittest.TestCase):
                     self.assertEqual(cli.enhanced_hillas_reco(args), 0)
                     with self.assertRaisesRegex(ValueError, "unsupported|does not support"):
                         cli._real_shower_config({"GeometryReconstructionTypes": ["DispWeightedReconstructor"]})
+                    mono_config = {"GeometryReconstructionTypes": ["MonoReconstructor", "HybridReconstructor"],
+                                   "MonoReconstructor": {"use_fake_hillas": True},
+                                   "HybridReconstructor": {"geometry_name": "HybridDirection"}}
+                    measured = cli._real_shower_config(mono_config)
+                    self.assertFalse(measured["MonoReconstructor"]["use_fake_hillas"])
+                    self.assertEqual(measured["HybridReconstructor"], mono_config["HybridReconstructor"])
+                    self.assertTrue(mono_config["MonoReconstructor"]["use_fake_hillas"])
+                    mono_config["GeometryReconstructionTypes"] = ["HillasReconstructor", "HybridReconstructor"]
+                    measured = cli._real_shower_config(mono_config)
+                    self.assertFalse(measured["MonoReconstructor"]["use_fake_hillas"])
+                    self.assertEqual(measured["HybridReconstructor"], mono_config["HybridReconstructor"])
                 expected = ["image", "shower", "write", "close"]
                 if input_format == "real" and not has_pointing:
                     expected.remove("shower")

@@ -319,3 +319,63 @@ def test_led_flag_source_roundtrip_and_legacy_unknown(tmp_path):
     legacy_source = RootEventSource(str(legacy_path))
     assert [(event.event_id, event.is_led) for event in legacy_source] == [
         (601, None), (602, None), (603, None)]
+
+
+def test_measured_dl1_mono_dl2_roundtrip_without_model_assets(tmp_path):
+    from pylast.image import ImageProcessor
+    from pylast.reco import MonoReconstructor
+    from pylast.reco.MonoReconstructor import disp_to_sky
+
+    mapping = mapping_file(tmp_path / "mapping.csv")
+    channels = [(pixel, True, 2.0, amplitude, amplitude * 5, 80)
+                for pixel, amplitude in enumerate((10, 20, 10, 15, 30, 25, 10, 35, 20), 1)]
+    path = summary_file(tmp_path / "measured.root",
+                        [(701, UNIX_TIME, 17, channels)], led_flags=[False])
+    source = LactRealEventSource(path, mapping, pointing_alt=70, pointing_az=23)
+    event = source[0]
+    assert event.simulation is None and event.dl2 is None
+    LactRealCalibrator()(event)
+    ImageProcessor(source.subarray, config_str=json.dumps({"Tailcuts_cleaner": {
+        "picture_thresh": 2, "boundary_thresh": 1, "min_number_picture_neighbors": 1,
+    }}))(event)
+
+    # Exercise the measured-image adapter and native storage without private weights.
+    mono = MonoReconstructor.__new__(MonoReconstructor)
+    mono.zenith_deg, mono.use_fake_hillas = 20, False
+    mono.geometry_name, mono.energy_name = "MonoDISPReconstructor", "MonoEnergyRegressor"
+    rows = mono.event_table(event)
+    assert rows.event_id.tolist() == [701] and rows.telescope_id.tolist() == [0]
+    assert mono.valid_images(rows).tolist() == [True]
+    assert rows.hillas_intensity.iloc[0] == pytest.approx(event.dl1.tels[0].image_parameters.hillas.intensity)
+    assert rows.n_pixels.iloc[0] == 9
+    result = rows.assign(valid_image=True, image_cut_pass=True, reconstruction_valid=True,
+                         accepted=True, disp_reco_deg=0.7, energy_reco_GeV=2500.0)
+    expected_alt, expected_az = disp_to_sky(
+        rows.nominal_x.iloc[0], rows.nominal_y.iloc[0], rows.nominal_psi.iloc[0], 0.7,
+        event.pointing.array_azimuth, event.pointing.array_altitude)
+    mono.store_result(event, result)
+    dl2 = event.ensure_dl2()
+    assert event.ensure_dl2() is dl2
+    assert set(dl2.geometry) == {mono.geometry_name} and set(dl2.energy) == {mono.energy_name}
+
+    output = tmp_path / "mono_roundtrip.root"
+    writer = DataWriter(source._source, str(output), config_str=json.dumps({
+        "write_dl0": True, "write_dl1": True, "write_dl1_image": True, "write_dl2": True,
+        "write_pointing": True, "write_simulation_shower": False,
+        "write_simulated_camera": False, "write_simulation_config": False,
+    }))
+    writer(event)
+    writer.close()
+    restored_source = RootEventSource(str(output))
+    restored = restored_source[0]
+    assert restored.event_id == event.event_id and restored.simulation is None
+    assert restored.is_led is False
+    np.testing.assert_allclose(restored.dl1.tels[0].image, event.dl1.tels[0].image)
+    for stored_event in (event, restored):
+        geometry = stored_event.dl2.geometry[mono.geometry_name]
+        energy = stored_event.dl2.energy[mono.energy_name]
+        assert geometry.is_valid and energy.energy_valid
+        np.testing.assert_allclose([geometry.alt, geometry.az], [expected_alt, expected_az], rtol=0, atol=1e-12)
+        assert energy.estimate_energy == pytest.approx(2.5)
+        assert list(geometry.telescopes) == list(energy.telescopes) == [0]
+        assert np.isnan([geometry.core_x, geometry.core_y, geometry.hmax, geometry.xmax]).all()

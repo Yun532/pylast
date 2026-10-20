@@ -50,6 +50,11 @@ public:
                     int64_t max_events = -1,
                     std::vector<int> subarray = {},
                     bool load_simulated_showers = false);
+    LactEventSource(const std::string& filename,
+                    int64_t max_events,
+                    std::vector<int> subarray,
+                    bool load_simulated_showers,
+                    bool allow_legacy_cherenkov_alias);
     ~LactEventSource() override;
 
     void open_file() override;

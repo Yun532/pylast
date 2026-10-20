@@ -13,12 +13,16 @@ def _real_shower_config(config):
     result = copy.deepcopy(config)
     shower = result.get("ShowerProcessor", result)
     names = shower.get("GeometryReconstructionTypes", ["HillasReconstructor"])
-    supported = {"HillasReconstructor", "EnergyRegressor", "ParticleClassifier"}
+    supported = {"HillasReconstructor", "EnergyRegressor", "ParticleClassifier",
+                 "MonoReconstructor", "HybridReconstructor"}
     unsupported = set(names) - supported
     if unsupported:
         raise ValueError("Real data does not support reconstructors: " + ", ".join(sorted(unsupported)))
     for name in names:
-        shower.setdefault(name, {})["use_fake_hillas"] = False
+        if name != "HybridReconstructor":
+            shower.setdefault(name, {})["use_fake_hillas"] = False
+    if "HybridReconstructor" in names:
+        shower.setdefault("MonoReconstructor", {})["use_fake_hillas"] = False
     return result
 
 

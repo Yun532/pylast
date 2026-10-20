@@ -84,8 +84,18 @@ LactEventSource::LactEventSource(const std::string& filename,
                                  int64_t max_events,
                                  std::vector<int> subarray,
                                  bool load_simulated_showers)
+    : LactEventSource(filename, max_events, subarray, load_simulated_showers, false)
+{}
+
+LactEventSource::LactEventSource(const std::string& filename,
+                                 int64_t max_events,
+                                 std::vector<int> subarray,
+                                 bool load_simulated_showers,
+                                 bool /*allow_legacy_cherenkov_alias*/)
     : EventSource(filename, max_events, subarray, load_simulated_showers)
 {
+    // Keep the mono branch's constructor API. lact_sim already reads both
+    // Cherenkov truth field names by default, with primary truth preferred.
     is_stream = false;
     initialize();
     load_schema();
