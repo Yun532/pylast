@@ -41,7 +41,8 @@ ROOT_PKG="$(python -c 'import importlib.util; print(next(iter(importlib.util.fin
 export LIGHTGBM_LIBRARY="$(python -c 'from pathlib import Path; import lightgbm; print(Path(lightgbm.__file__).resolve().parent / "lib/lib_lightgbm.so")')"
 export LD_LIBRARY_PATH="$ROOT_PKG/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
 python -m pip install --no-build-isolation '.[real-data]' \
-  --config-settings=cmake.args="-DWITH_EXT_REC=ON;-DROOT_DIR=$ROOT_PKG/cmake"
+  -Ccmake.define.WITH_EXT_REC=ON -Ccmake.define.ROOT_DIR="$ROOT_PKG/cmake"
+python -m ipykernel install --sys-prefix --name pylast-observation --display-name 'pyLAST observation'
 ```
 
 在仓库根目录执行一次 Notebook 并把结果留在私有目录：
@@ -50,9 +51,10 @@ python -m pip install --no-build-isolation '.[real-data]' \
 cd "$HOME/pylast-lact_sim"
 export PYLAST_OBSERVATION_CONFIG="$HOME/pylast-assets/observation.json"
 jupyter nbconvert --to notebook --execute --ExecutePreprocessor.timeout=300 \
+  --ExecutePreprocessor.kernel_name=pylast-observation \
   --output-dir "$HOME/pylast-assets" --output observation.executed.ipynb \
   notebooks/lact_observation_reconstruction.ipynb
 ```
 
-如需交互运行，可改用 `jupyter lab --no-browser --ip=127.0.0.1`，打开同一 Notebook。
+如需交互运行，可改用 `jupyter lab --no-browser --ip=127.0.0.1`，打开同一 Notebook 并选择 `pyLAST observation` 内核。
 Notebook 的默认代码启用两条链；没有多相机观测或模拟替代样本时，会说明多台分支未产生结果。
