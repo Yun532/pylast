@@ -183,10 +183,12 @@ void LactRealEventSource::init_subarray() {
     telescope.tel_name = "LACT1";
     telescope.camera_description = {"LACT1", std::move(geometry), std::move(readout)};
     telescope.optics_description = {"LACT1", 1, config.value("mirror_area_m2", 1.0), focal, focal};
-    // Prototype position used by the original KM2A/WCDA plotter, converted
-    // from KM2A (-144.645,-28.7345) to pylast ground (North,West,Up).
+    // Prototype position in the upstream LHAASO ArrayMap. KM2A native
+    // (-144.645,-28.7345) is already pylast's (North,West) axis order here:
+    // plotting (-West,North) gives (28.7345,-144.645), like ED/MD and cores.
+    // The 0.61 degree sky-direction calibration is not a ground-map rotation.
     const auto location = config.value("telescope_position_m",
-        std::vector<double>{-144.942718773876, -27.192936393245507, 0});
+        std::vector<double>{-144.645, -28.7345, 0});
     if (location.size() != 3 || !std::all_of(location.begin(), location.end(),
                                            [](double v) { return std::isfinite(v); }))
         throw std::invalid_argument("telescope_position_m must contain three finite coordinates");

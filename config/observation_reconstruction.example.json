@@ -1,0 +1,23 @@
+{
+  "input": "analysis.root",
+  "mapping_file": "mapping-v6.csv",
+  "pointing_file": "pointing.txt",
+  "calibration_file": "led_cal.root",
+  "analysis_file": null,
+  "event_index": 0,
+  "km2a_file": null,
+  "wcda_file": null,
+  "mono": {
+    "bundle_dir": "model_bundle_v3",
+    "group": "36tel_z20",
+    "threshold_branch": "fixed",
+    "use_fake_hillas": false
+  },
+  "stereo": {
+    "group": "36tel_z20",
+    "pipeline_archive": "LACT_36tel_E20_PID23_50h_code.zip",
+    "models": {"energy18": "energy18.txt", "energy20": "energy20.txt", "pid23": "pid23.txt"},
+    "use_fake_hillas": false
+  },
+  "stereo_demo": null
+}

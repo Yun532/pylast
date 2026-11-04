@@ -1,5 +1,36 @@
 # Mono / hybrid 的安装与使用
 
+## 可替换的 v3 单台与 E20/PID23 立体模型
+
+服务器版[实测 Notebook](../notebooks/lact_observation_reconstruction.ipynb)通过观测配置 JSON 选择模型，
+见 [Linux 服务器指南](observation_server_zh.md)。
+更换同接口的版本时，替换整个 v3 bundle（含 recipe、模型和阈值），或修改配置里的
+`mono.bundle_dir`；立体的 E18、E20、PID23 三份 LightGBM 文件分别由 `stereo.models`
+指定。路径相对于该 JSON。模型、配套阈值和特征约定须来自同一次发布，不混搭。
+不需要将私有权重复制到源码仓库。
+
+```python
+from pylast.reco.PortableMonoReconstructor import PortableMonoReconstructor
+from pylast.reco.PortableStereoReconstructor import PortableStereoReconstructor
+
+# mono_config / stereo_config 是已解析路径的配置字典；event 已做 DL1 参数化。
+mono = PortableMonoReconstructor(source.subarray, mono_config)
+one = mono(event, telescope_id=actual_tel_id)  # 实际事件 ID；单张可用图像可省略
+stereo = PortableStereoReconstructor(source.subarray, stereo_config)
+multi = stereo(event)
+```
+
+两者也可以用其类名在 `ShowerProcessor.GeometryReconstructionTypes` 显式注册，
+同名配置段填模型配置；现有默认及旧 mono/hybrid 路由不变。
+v3 单台使用同版图像筛选和质量/PID 节点，在单台实测数据上不计算需要模拟真值的方向误差。
+`fixed` 是阈值来源，不能视为任意物理望远镜上的性能已校准；也不会把单台记录认成阵列 `exact_one`。
+新版立体使用发布的几何/特征实现：E20 输出能量，E18 供 PID23 使用。模型输出不自动套用
+观测曝光相关的 sensitivity h/θ 筛选。实测数据若只有一张图像，就没有该事件的立体解。
+在同一进程内调用原生扩展和 Python 立体模型时，两者应使用同一份 LightGBM 动态库；
+Notebook 的内核已配置为使用与本机原生扩展相同的 4.7 库。
+
+以下保留旧模型与原有 hybrid 的用法。
+
 此扩展增加 mono 和 hybrid 重建、必要的 Python 绑定，并将原有重建器注册表
 统一到共享库中的一个实例，避免 Python 扩展无法找到原立体能量/PID重建器。
 原有 C++ 立体重建、

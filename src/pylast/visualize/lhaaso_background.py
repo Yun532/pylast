@@ -17,6 +17,7 @@ _DETECTOR_POS_CACHE: Dict[str, np.ndarray] = {}
 
 
 def km2a_xy_to_eventshow_map(x_km2a: np.ndarray | float, y_km2a: np.ndarray | float):
+    """Upstream LHAASO array map: (-KM2A y, KM2A x), without sky calibration."""
     x = np.asarray(x_km2a, dtype=np.float64)
     y = np.asarray(y_km2a, dtype=np.float64)
     gx = -y
@@ -31,6 +32,11 @@ def wcda_xy_to_en(
     y_wcda: np.ndarray | float,
     z_wcda: np.ndarray | float = 0.0,
 ):
+    """Map full-array WCDA xc/yc to the original LHAASO array-map axes.
+
+    This is the supplied xc/yc plotter convention, not the older pond-1
+    nkg_x/nkg_y convention and not an independently surveyed true-ENU frame.
+    """
     x = np.asarray(x_wcda, dtype=np.float64)
     y = np.asarray(y_wcda, dtype=np.float64)
     z = np.asarray(z_wcda, dtype=np.float64)
@@ -98,7 +104,11 @@ def draw_lhaaso_background(
     set_limits: bool = False,
     show_legend: bool = False,
 ) -> Dict[str, Any]:
-    """Draw the bundled KM2A ED/MD detector map and WCDA ponds."""
+    """Draw the bundled KM2A ED/MD positions and WCDA ponds in ArrayMap.
+
+    Geometry text X/Y already are the map axes; do not apply the 0.61 degree
+    calibration used for KM2A sky directions to these detector positions.
+    """
 
     ed_fp = ed_pos_file or DEFAULT_KM2A_ED_POS_FILE
     md_fp = md_pos_file or DEFAULT_KM2A_MD_POS_FILE
@@ -195,8 +205,8 @@ def plot_lhaaso_background(
         show_legend=True,
     )
     ax.set_aspect("equal", adjustable="box")
-    ax.set_xlabel("x [m]")
-    ax.set_ylabel("y [m]")
+    ax.set_xlabel("Array East (m)")
+    ax.set_ylabel("Array North (m)")
     ax.set_title("LHAASO Array Map")
     ax.grid(True, ls=":", lw=0.6, alpha=0.55)
     fig.tight_layout()

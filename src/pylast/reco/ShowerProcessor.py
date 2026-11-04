@@ -5,7 +5,8 @@ import json
 
 class ShowerProcessor:
     C_RECONSTRUCTORS = ["HillasReconstructor", "EnergyRegressor", "ParticleClassifier"]
-    PY_RECONSTRUCTORS = ["MonoReconstructor", "HybridReconstructor"]
+    PY_RECONSTRUCTORS = ["MonoReconstructor", "HybridReconstructor",
+                         "PortableMonoReconstructor", "PortableStereoReconstructor"]
 
     def __init__(self, subarray, config_str=None):
         self.subarray = subarray
@@ -14,8 +15,12 @@ class ShowerProcessor:
         self.c_shower_processor = None
         self.mono_reconstructor = None
         self.hybrid_reconstructor = None
+        self.portable_mono_reconstructor = None
+        self.portable_stereo_reconstructor = None
         self.last_mono_result = None
         self.last_hybrid_result = None
+        self.last_portable_mono_result = None
+        self.last_portable_stereo_result = None
 
         config = json.loads(config_str) if isinstance(config_str, str) else dict(config_str or {})
         if not isinstance(config, dict):
@@ -36,7 +41,8 @@ class ShowerProcessor:
             return
         if len(set(python_names)) != len(python_names):
             raise ValueError("Duplicate Python reconstructor stage")
-        if "MonoReconstructor" not in section:
+        if ({"MonoReconstructor", "HybridReconstructor"}.intersection(python_names)
+                and "MonoReconstructor" not in section):
             raise ValueError("Mono/hybrid stages require a shared MonoReconstructor configuration")
 
         c_names = [name for name in names if name not in self.PY_RECONSTRUCTORS]
@@ -56,8 +62,17 @@ class ShowerProcessor:
             self.c_shower_processor = CShowerProcessor(subarray, json.dumps(native_config))
 
         # Optional model dependencies are imported only for explicitly requested stages.
-        from .MonoReconstructor import MonoReconstructor
-        self.mono_reconstructor = MonoReconstructor(subarray, section["MonoReconstructor"])
+        if {"MonoReconstructor", "HybridReconstructor"}.intersection(python_names):
+            from .MonoReconstructor import MonoReconstructor
+            self.mono_reconstructor = MonoReconstructor(subarray, section["MonoReconstructor"])
+        if "PortableMonoReconstructor" in python_names:
+            from .PortableMonoReconstructor import PortableMonoReconstructor
+            self.portable_mono_reconstructor = PortableMonoReconstructor(
+                subarray, section["PortableMonoReconstructor"])
+        if "PortableStereoReconstructor" in python_names:
+            from .PortableStereoReconstructor import PortableStereoReconstructor
+            self.portable_stereo_reconstructor = PortableStereoReconstructor(
+                subarray, section["PortableStereoReconstructor"])
         if "HybridReconstructor" in python_names:
             from .HybridReconstructor import HybridReconstructor
             self.hybrid_reconstructor = HybridReconstructor(
@@ -71,6 +86,10 @@ class ShowerProcessor:
             self.c_shower_processor(event)
         if "MonoReconstructor" in self.py_reconstructor_configs:
             self.last_mono_result = self.mono_reconstructor(event)
+        if self.portable_mono_reconstructor is not None:
+            self.last_portable_mono_result = self.portable_mono_reconstructor(event)
+        if self.portable_stereo_reconstructor is not None:
+            self.last_portable_stereo_result = self.portable_stereo_reconstructor(event)
         if self.hybrid_reconstructor is not None:
             # Hybrid's exact-one call uses store=False; any fixed-mono DL2 stays intact.
             self.last_hybrid_result = self.hybrid_reconstructor(event, run_stereo=False)

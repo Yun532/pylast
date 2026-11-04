@@ -101,7 +101,7 @@ charge and maximum charge/detector ID. Optional `event` and `visualizer`
 arguments add the actual LACT telescope positions and pointing and align the
 view limits with the core plot; the event ID and available Rabbit timestamp
 must agree with the sidecar. The quicklook CLI supplies these arguments.
-Reconstruction angles are labelled zenith and geographic azimuth, in degrees.
+Reconstruction angles are labelled zenith and upstream calibrated sky azimuth, in degrees.
 It accepts
 `ed_pos_file` and `md_pos_file` overrides. The hit selection follows the
 reference display (`status >= 2`, `pe >= 1`). Missing hit branches raise a
@@ -114,7 +114,9 @@ scalars and do not contain a cell hit map.
 KM2A directions use the reference 0.61-degree offset; WCDA directions use
 29.442 degrees. WCDA core positions reuse `lhaaso_background.wcda_xy_to_en`
 (30-degree rotation and the established centre translation). KM2A native
-core coordinates are converted to East/North using the 0.61-degree offset.
+core coordinates use the upstream ArrayMap mapping `(-rec_y, rec_x)`, without
+that direction calibration. T1, cores, backgrounds and hit anchors share
+`LHAASO_ARRAY_MAP`; these axes are not independently surveyed geographic ENU.
 Bundled detector positions already use the array plot axes and are reused
 unchanged. Camera directions and SDPs use the current pylast projector and
 the current camera Y/X display order, not the older standalone script's

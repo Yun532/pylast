@@ -3,7 +3,7 @@
     "tel_id": 0,
     "focal_length_m": 8.0,
     "pixel_width_m": 0.0254,
-    "telescope_position_m": [-144.942718773876, -27.192936393245507, 0.0],
+    "telescope_position_m": [-144.645, -28.7345, 0.0],
     "tai_minus_utc_s": 37,
     "sampling_interval_ns": 0.0
   },

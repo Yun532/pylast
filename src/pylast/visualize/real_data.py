@@ -2,7 +2,8 @@
 
 Inputs are already matched sidecar ROOT files: ``event`` is the LACT event ID.
 This module does not perform a time coincidence search or recalibrate data.
-Ground coordinates are East/North; camera projections use pylast's normal
+Ground coordinates are the LHAASO array-map East/North axes, not a surveyed
+geographic ENU frame; camera projections use pylast's normal
 camera convention through EventVisualizer, including its display axis order.
 """
 
@@ -69,14 +70,27 @@ def _load_table(path, detector):
     return data
 
 
-def km2a_xy_to_en(x, y, phi_offset_deg=0.61):
-    """Convert KM2A native coordinates to geographic East/North (metres)."""
+def km2a_xy_to_en(x, y, phi_offset_deg=0.0):
+    """Convert KM2A native cores to LHAASO array-map East/North (metres).
+
+    The upstream joint reconstruction uses ``(-rec_y, rec_x)`` for positions.
+    Its 0.61 degree direction calibration is not a rotation of this map.
+    ``phi_offset_deg`` retains an explicit optional map rotation for callers;
+    leave it zero with the bundled detector positions and measured T1.
+    """
     offset = np.radians(phi_offset_deg)
     x, y = np.asarray(x), np.asarray(y)
     return np.sin(offset) * x - np.cos(offset) * y, np.cos(offset) * x + np.sin(offset) * y
 
 
 def km2a_theta_phi_to_altaz(theta, phi, phi_offset_deg=0.61):
+    """Convert the upstream calibrated sky direction to North-through-East.
+
+    Upstream uses phi_map = phi - 0.61 deg + 270 deg and the sky vector
+    (sin(theta)*cos(phi_map), sin(theta)*sin(phi_map), cos(theta)).
+    Thus AZ = pi/2 - phi_map = pi - phi + 0.61 deg, modulo 2*pi.
+    This calibration does not apply to the core or detector positions.
+    """
     return (-(np.asarray(phi) + np.pi - np.radians(phi_offset_deg))) % (2 * np.pi), np.pi / 2 - np.asarray(theta)
 
 
@@ -127,7 +141,8 @@ def _load_record(path, event_id, detector):
         east = north = np.nan
     if not direction_valid:
         az = alt = np.nan
-    record.update(core_east_m=float(east), core_north_m=float(north),
+    record.update(ground_coordinate_frame="LHAASO_ARRAY_MAP",
+                  core_east_m=float(east), core_north_m=float(north),
                   azimuth_rad=float(az), altitude_rad=float(alt),
                   core_valid=core_valid, direction_valid=direction_valid)
     return record
@@ -231,7 +246,7 @@ def draw_external_camera_overlays(visualizer, ax, event, tel_id, external_recons
 
 
 def draw_external_event_cores(ax, external_reconstructions, *, event_id=None, event=None, show_direction=True):
-    """Add matched geographic core positions and arrival directions to an array view."""
+    """Add matched LHAASO array-map cores and calibrated arrival directions."""
     from .event_visualizer import _add_arrival_arrow
     points = {}
     for detector, record in list(_records(external_reconstructions, event_id, event=event)):
@@ -275,7 +290,7 @@ def plot_wcda_event(path, event_id, *, output_path=None, show=True, ed_pos_file=
     fig, ax = plt.subplots(figsize=(7.6, 7))
     draw_lhaaso_background(ax, ed_pos_file=ed_pos_file, md_pos_file=md_pos_file, set_limits=True)
     draw_external_event_cores(ax, {"WCDA": record}, event_id=event_id)
-    ax.set(xlabel="East (m)", ylabel="North (m)", title=f"WCDA event_id={event_id}")
+    ax.set(xlabel="Array East (m)", ylabel="Array North (m)", title=f"WCDA event_id={event_id}")
     ax.set_aspect("equal", adjustable="box")
     ax.grid(True, alpha=0.25, linewidth=0.55)
     ax.legend(loc="upper right", fontsize=8)
@@ -386,7 +401,7 @@ def plot_km2a_event(path, event_id, *, output_path=None, show=True, ed_pos_file=
                     ax.text(0.02, 0.98, "KM2A: invalid reconstructed direction", transform=ax.transAxes,
                             va="top", fontsize=8, bbox=dict(facecolor="white", edgecolor="none", alpha=0.85))
                 ax.set(title=f"KM2A {panel}   Nhit={len(hits)}   Sum={hits[:, 2].sum():.2f} p.e.",
-                       xlabel="East (m)", ylabel="North (m)")
+                       xlabel="Array East (m)", ylabel="Array North (m)")
                 ax.set_aspect("equal", adjustable="box")
                 ax.grid(True, alpha=0.25, linewidth=0.55)
                 ax.tick_params(direction="in", top=True, right=True)

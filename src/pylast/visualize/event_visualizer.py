@@ -936,8 +936,9 @@ class EventVisualizer:
                     label="Reco direction",
                     line_style="--",
                 )
-        ax.set_xlabel("East (m)")
-        ax.set_ylabel("North (m)")
+        ground_prefix = "Array " if getattr(self.source, "ground_coordinate_frame", None) == "LHAASO_ARRAY_MAP" else ""
+        ax.set_xlabel(f"{ground_prefix}East (m)")
+        ax.set_ylabel(f"{ground_prefix}North (m)")
         ax.set_title(f"LACT array event_id={_event_label(event)}")
         extra_x = [core_x] if np.isfinite(core_x) else []
         extra_y = [core_y] if np.isfinite(core_y) else []

@@ -20,6 +20,8 @@ class LactRealEventSource:
     are a separate clock and are never substituted for that sampling interval.
     """
 
+    ground_coordinate_frame = "LHAASO_ARRAY_MAP"
+
     def __init__(self, filename, mapping_file, max_events=-1, *, config_str=None,
                  analysis_file=None, pointing_file=None,
                  pointing_alt=None, pointing_az=None):

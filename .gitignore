@@ -1047,6 +1047,9 @@ Test/
 /test/*
 !/test/test_image_detail.py
 !/test/test_real_data_visualize.py
+!/test/test_dl3.py
+!/test/test_dl3_images.py
+!/test/test_dl3_external.py
 Release/
 .vscode/
 build*/
@@ -1055,6 +1058,7 @@ build*/
 /model/
 /models/
 /model_bundle/
+/model_bundle_v*/
 /models_local/
 /src/pylast/model/
 *.joblib
@@ -1066,4 +1070,12 @@ build*/
 *.h5
 *.hdf5
 *model_bundle*.zip
+LACT_36tel_E20_PID23_50h_code.zip
+energy18.txt
+energy20.txt
+pid23.txt
+*.root
+*.fits
+*.executed.ipynb
+/config/observation_reconstruction.local.json
 *model_bundle*.tar*

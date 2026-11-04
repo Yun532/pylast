@@ -14,7 +14,8 @@ def _real_shower_config(config):
     shower = result.get("ShowerProcessor", result)
     names = shower.get("GeometryReconstructionTypes", ["HillasReconstructor"])
     supported = {"HillasReconstructor", "EnergyRegressor", "ParticleClassifier",
-                 "MonoReconstructor", "HybridReconstructor"}
+                 "MonoReconstructor", "HybridReconstructor", "PortableMonoReconstructor",
+                 "PortableStereoReconstructor"}
     unsupported = set(names) - supported
     if unsupported:
         raise ValueError("Real data does not support reconstructors: " + ", ".join(sorted(unsupported)))

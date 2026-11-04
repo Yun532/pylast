@@ -1,6 +1,7 @@
 """Real-event plots share the current camera renderer and reject mismatched IDs."""
 from pathlib import Path
 from types import SimpleNamespace as NS
+import json
 import os
 
 import matplotlib
@@ -21,7 +22,10 @@ from pylast.visualize import (
     plot_clean_images, plot_gathered_images, plot_image_detail,
 )
 from pylast.visualize.event_visualizer import read_event_data, incident_point_on_camera
-from pylast.visualize.real_data import _load_table, _records
+from pylast.visualize.real_data import (
+    _detector_positions, _load_table, _records, km2a_xy_to_en, km2a_theta_phi_to_altaz,
+)
+from pylast.visualize.lhaaso_background import draw_lhaaso_background, load_detector_positions
 
 
 def example():
@@ -29,16 +33,78 @@ def example():
     image = 40 * np.exp(-((x.ravel() - 0.08)**2 + y.ravel()**2) / 0.02)
     geometry = NS(pix_x=x.ravel(), pix_y=y.ravel(), pix_area=np.full(x.size, 0.01))
     telescope = NS(optics=NS(equivalent_focal_length=8), camera=NS(geometry=geometry))
-    source = NS(subarray=NS(tel_positions={0: [30, 40, 0]}, tels={0: telescope}))
+    source = NS(subarray=NS(tel_positions={0: [30, 40, 0]}, tels={0: telescope}),
+                ground_coordinate_frame="LHAASO_ARRAY_MAP")
     hillas = NS(x=0.01, y=0, length=0.008, width=0.003, psi=0.1, intensity=float(image.sum()))
     event = NS(event_id=7, pointing=NS(array_altitude=1.1, array_azimuth=0.2),
                dl0=NS(tels={0: NS(image=image.copy())}),
                dl1=NS(tels={0: NS(image=image.copy(), mask=image > 5,
                                 image_parameters=NS(hillas=hillas))}))
     records = {name: dict(event_id=7, core_east_m=100, core_north_m=150,
+                         ground_coordinate_frame="LHAASO_ARRAY_MAP",
                          azimuth_rad=0.21 + i * 0.01, altitude_rad=1.11)
                for i, name in enumerate(("KM2A", "WCDA"))}
     return EventVisualizer(source), event, records
+
+
+def test_km2a_direction_matches_upstream_cartesian_vector_in_all_quadrants():
+    # Upstream joint reconstruction supplies phi' = rec_phi - .61 + 270 deg
+    # and (sin(theta)*cos(phi'), sin(theta)*sin(phi'), cos(theta)). Compare
+    # physical vectors, independently of the exporter's azimuth formula.
+    phi = np.radians([0., 90., 180., 270.])
+    theta = np.radians([20., 35., 50., 65.])
+    upstream_phi = phi + np.radians(270. - .61)
+    expected = np.column_stack((np.sin(theta) * np.cos(upstream_phi),
+                                np.sin(theta) * np.sin(upstream_phi), np.cos(theta)))
+    az, alt = km2a_theta_phi_to_altaz(theta, phi)
+    actual = np.column_stack((np.cos(alt) * np.sin(az),
+                              np.cos(alt) * np.cos(az), np.sin(alt)))
+    np.testing.assert_allclose(actual, expected, rtol=0, atol=1e-14)
+    assert np.all((az >= 0) & (az < 2 * np.pi))
+
+
+def test_km2a_cores_background_and_hit_anchors_share_array_map(tmp_path):
+    # These are detector-file X/Y anchors, not a second surveyed EN rotation.
+    native = np.array([[100., 0.], [0., 100.], [-100., 0.], [0., -100.]])
+    expected_map = np.array([[0., 100.], [-100., 0.], [0., -100.], [100., 0.]])
+    path = tmp_path / "detectors.txt"
+    np.savetxt(path, np.column_stack((np.arange(4), expected_map, np.full(4, 4400.))),
+               header="id X Y Z", comments="")
+    np.testing.assert_allclose(np.column_stack(km2a_xy_to_en(*native.T)), expected_map, atol=1e-12)
+    # Retain the public explicit-rotation option, without using it by default.
+    np.testing.assert_allclose(km2a_xy_to_en(100., 0., phi_offset_deg=90.), [100., 0.], atol=1e-12)
+    np.testing.assert_allclose(load_detector_positions(path)[:, :2], expected_map, atol=1e-12)
+    anchors = _detector_positions(str(path))
+    np.testing.assert_allclose([anchors[index] for index in range(4)], expected_map, atol=1e-12)
+    fig, ax = plt.subplots()
+    try:
+        draw_lhaaso_background(ax, ed_pos_file=path, md_pos_file=path)
+        for points in ax.collections[:2]:
+            np.testing.assert_allclose(points.get_offsets(), expected_map, atol=1e-12)
+    finally:
+        plt.close(fig)
+
+
+@pytest.mark.skipif(uproot is None, reason="Measured source fixture requires uproot")
+def test_measured_t1_native_default_and_config_use_the_original_km2a_anchor():
+    from pylast.io import LactRealEventSource
+
+    repo = Path(__file__).resolve().parents[1]
+    expected = [-144.645, -28.7345, 0.]
+    config = json.loads((repo / "config/real_data.json").read_text(encoding="utf-8"))
+    np.testing.assert_allclose(config["source"]["telescope_position_m"], expected, rtol=0, atol=1e-12)
+    directory = Path(os.environ.get("PYLAST_REAL_DATA_REFERENCE", repo.parent / "real_data_plot/reference_data/20260214"))
+    analysis = directory / "analysis/analysis_build_20260215064901.root"
+    mapping = repo.parent / "real_data_plot/mapping-v6.csv"
+    if not analysis.exists() or not mapping.exists():
+        pytest.skip("Measured ROOT and camera mapping are not installed")
+    # No config override: this exercises the compiled C++ reader default, with
+    # zero events so no image calibration or model inference is performed.
+    source = LactRealEventSource(analysis, mapping, max_events=0)
+    np.testing.assert_allclose(source.subarray.tel_positions[0], expected, rtol=0, atol=1e-12)
+    assert source.ground_coordinate_frame == "LHAASO_ARRAY_MAP"
+    geometry = EventVisualizer(source).tel_geoms[0]
+    np.testing.assert_allclose([geometry.pos_x, geometry.pos_y], [28.7345, -144.645], rtol=0, atol=1e-12)
 
 
 def test_current_camera_style_and_contents_survive_external_overlays():
@@ -204,6 +270,8 @@ def test_wcda_match_schemas_exclude_unmatched_and_ambiguous_entries(tmp_path, fl
 ])
 @pytest.mark.skipif(uproot is None, reason="Matched-sidecar tests require uproot")
 def test_actual_matched_sidecars(stem, km2a_count, wcda_count):
+    from pylast.io import DL3ExternalSource
+
     default = Path(__file__).resolve().parents[2] / "real_data_plot" / "reference_data" / "20260214"
     directory = Path(os.environ.get("PYLAST_REAL_DATA_REFERENCE", default))
     km2a = directory / "km2a" / f"analysis_build_{stem}.rec.root"
@@ -216,6 +284,8 @@ def test_actual_matched_sidecars(stem, km2a_count, wcda_count):
     analysis = directory / "analysis" / f"analysis_build_{stem}.root"
     with uproot.open(analysis) as root:
         timestamps = root["eventShow"].arrays(["event", "RabbitTime", "Rabbittime"], library="np")
+    dl3_source = DL3ExternalSource(km2a, wcda)
+    assert dl3_source.provenance["coordinates"]["ground_frame"] == "LHAASO_ARRAY_MAP"
     for path, values, loader in ((km2a, ids["KM2A"], load_km2a_event_record),
                                  (wcda, ids["WCDA"], load_wcda_event_record)):
         for event_id in values:
@@ -231,6 +301,14 @@ def test_actual_matched_sidecars(stem, km2a_count, wcda_count):
             event = NS(event_id=event_id, rabbit_time=int(timestamps["RabbitTime"][index]),
                        rabbit_tick=int(timestamps["Rabbittime"][index]))
             assert len(list(_records({record["detector"]: record}, event_id, event=event))) == 1
+            assert record["ground_coordinate_frame"] == "LHAASO_ARRAY_MAP"
+            prefix = record["detector"] + "_"
+            exported = dl3_source.rows_for_event(event)
+            np.testing.assert_allclose(
+                [exported[prefix + key] for key in ("CORE_EAST", "CORE_NORTH", "AZ", "ALT")],
+                [record["core_east_m"], record["core_north_m"],
+                 np.degrees(record["azimuth_rad"]), np.degrees(record["altitude_rad"])],
+                rtol=0, atol=1e-12, equal_nan=True)
     figure, axes = plot_km2a_event(km2a, 352455 if stem == "20260215064950" else ids["KM2A"][0], show=False)
     for ax in axes:
         assert {"KM2A ED (5216)", "KM2A MD (1188)", "WCDA outer 310 x 270 m"}.issubset(
