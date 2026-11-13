@@ -54,6 +54,8 @@ void ImageProcessor::registerParams() {
                              image_cleaner_type);
   registerParam<double>("poisson_noise", 0.0, poisson_noise);
   registerParam<double>("cut_radius", 0.0, cut_radius);
+  registerParam<int>("trigger_camera_min_pixels", 5,
+                     fake_trigger_camera_min_pixels);
   registerParam<int>("trigger_pixels", 4, fake_trigger_pixels);
   registerParam<double>("trigger_pe", 8, fake_trigger_pe);
   registerParam<bool>("use_random_gaussian", false, use_random_gaussian);
@@ -67,6 +69,10 @@ ImageProcessor::image_clean(const CameraGeometry &camera_geometry,
                             const Eigen::VectorXd &image) {
   return (*image_cleaner)(camera_geometry, image);
 }
+int ImageProcessor::trigger_camera_min_pixels() const {
+  return fake_trigger_camera_min_pixels;
+}
+
 void ImageProcessor::setUp() {
   std::cout << "image_cleaner_type: " << image_cleaner_type << std::endl;
   if (image_cleaner_type == "Tailcuts_cleaner") {
@@ -560,7 +566,7 @@ bool ImageProcessor::fake_trigger(const CameraGeometry &camera_geometry,
   // Check if the image has enough pixels above the threshold
   Eigen::Vector<bool, -1> above_threshold_pixels = image.array() > threshold;
   int num_pixels_above_threshold = above_threshold_pixels.count();
-  if (num_pixels_above_threshold < 5) {
+  if (num_pixels_above_threshold < trigger_camera_min_pixels()) {
     return false; // Not enough pixels above the threshold
   }
   Eigen::VectorXi pixels_above_in_group =

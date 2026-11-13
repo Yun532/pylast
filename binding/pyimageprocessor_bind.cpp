@@ -18,6 +18,8 @@ void bind_imageprocessor(nb::module_ &m)
              nb::arg("config_str"))
         .def(nb::init<const SubarrayDescription&>(), 
              nb::arg("subarray"))
+        .def_prop_ro("trigger_camera_min_pixels",
+                     &ImageProcessor::trigger_camera_min_pixels)
         .def("__call__", [](ImageProcessor& self, ArrayEvent& event) {
             self(event);
         })

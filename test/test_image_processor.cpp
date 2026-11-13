@@ -20,6 +20,35 @@ CameraGeometry create_grid_camera(int w, int h) {
                          pix_area.data(), pix_type.data(), 0, false);
 }
 
+TEST_CASE("Simulation camera trigger accepts an external camera-wide minimum") {
+    SubarrayDescription subarray;
+    subarray.tels[0].camera_description.camera_geometry = create_grid_camera(5, 5);
+    auto fires = [&](const Eigen::VectorXd& image, const std::string& config) {
+        ArrayEvent event;
+        event.dl0.emplace();
+        event.simulation.emplace();
+        event.simulation->add_tel(0)->true_image_pe = image;
+        ImageProcessor processor(subarray, config);
+        processor(event);
+        return event.simulation->triggered_tels == std::vector<int>{0};
+    };
+    // A tiny positive mean selects the native re-trigger path without changing
+    // any of these integer test charges.
+    const std::string original = R"({"poisson_noise":1e-100,"trigger_pe":8,"trigger_pixels":4})";
+    const std::string global4 = R"({"poisson_noise":1e-100,"trigger_pe":8,"trigger_pixels":4,"trigger_camera_min_pixels":4})";
+    Eigen::VectorXd image = Eigen::VectorXd::Zero(25);
+    for (int i : {7, 11, 13, 17}) image[i] = 9;
+    CHECK_FALSE(fires(image, original));
+    CHECK(fires(image, global4));
+    image[0] = 9;
+    CHECK(fires(image, original));
+    image[17] = 8;
+    CHECK_FALSE(fires(image, global4)); // Five nonzero charges, but only three in the neighborhood pass >8.
+    image.setZero();
+    for (int i : {0, 4, 20, 24}) image[i] = 9;
+    CHECK_FALSE(fires(image, global4)); // Four spatially disconnected pixels.
+}
+
 TEST_CASE("TEST_CONFIGURABLE") {
     TailcutsCleaner cleaner;
     CHECK(cleaner.get_picture_thresh() == 10);

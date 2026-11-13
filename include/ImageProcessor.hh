@@ -35,6 +35,7 @@ public:
 
   void registerParams() override;
   void setUp() override;
+  int trigger_camera_min_pixels() const;
 
   void operator()(ArrayEvent &event);
   Eigen::Vector<bool, -1> image_clean(const CameraGeometry &camera_geometry,
@@ -72,6 +73,7 @@ private:
   std::unique_ptr<ImageCleaner> image_cleaner;
   double poisson_noise = 0.0;
   int fake_trigger_pixels = 0;
+  int fake_trigger_camera_min_pixels = 5;
   double fake_trigger_pe = 0;
   double cut_radius = 0.0;
   bool use_cut_radius = false;
